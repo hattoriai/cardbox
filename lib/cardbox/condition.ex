@@ -16,7 +16,7 @@ defmodule Cardbox.Condition do
   # with no value is false, as SQL's NULL is in a WHERE; a :not is only ever
   # of a condition that is never NULL, or beside an :empty that catches it.
 
-  alias Cardbox.{Choice, Collection, Field, Filter, Query, Record, Type}
+  alias Cardbox.{Collection, Field, Filter, Query, Record, Search, Type}
 
   @type ref :: {:data, String.t(), Type.kind()} | {:column, atom(), Type.kind()}
   @type t ::
@@ -179,31 +179,11 @@ defmodule Cardbox.Condition do
     end
   end
 
-  # A search: the text in a text field, or a choice whose name has it.
+  # A search: each of its words in the record's search text (Cardbox.Search).
   defp search(nil, _collection), do: true
 
-  defp search(text, %Collection{fields: fields}) do
-    needle = String.downcase(text)
-
-    conditions =
-      Enum.flat_map(fields, fn field ->
-        ref = ref(field)
-
-        case {field.type, Type.kind(field)} do
-          {_type, :text} ->
-            [{:like, ref, :contains, text}]
-
-          {type, kind} when type in ~w(select status multi_select) ->
-            for %{"id" => id, "name" => name} <- Field.choices(field),
-                String.contains?(String.downcase(name), needle),
-                do: if(kind == :list, do: {:has, ref, id}, else: {:cmp, ref, :eq, id})
-
-          _other ->
-            []
-        end
-      end)
-
-    {:or, conditions}
+  defp search(text, _collection) do
+    {:and, for(word <- Search.words(text), do: {:like, {:column, :search_text, :text}, :contains, word})}
   end
 
   @doc false
@@ -324,7 +304,4 @@ defmodule Cardbox.Condition do
   # The choices of the collection's choice fields, by key, for the order of a
   # sort by a select or a status.
   def choice_order(%Field{} = field), do: Enum.map(Field.choices(field), & &1["id"])
-
-  @doc false
-  def groups, do: Choice.groups()
 end

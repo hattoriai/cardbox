@@ -6,7 +6,7 @@ defmodule Cardbox.Records do
 
   import Ecto.Query
 
-  alias Cardbox.{Collection, Collections, Condition, Error, Field, Query, Record, SQL, Store, Type, View, Views}
+  alias Cardbox.{Collection, Collections, Condition, Error, Field, Query, Record, Search, SQL, Store, Type, View, Views}
 
   ## Reading
 
@@ -88,6 +88,7 @@ defmodule Cardbox.Records do
       %Record{
         collection_id: collection.id,
         data: data,
+        search_text: Search.text(collection, data),
         position: insert_position(repo, collection, opts),
         created_by: actor,
         updated_by: actor
@@ -137,7 +138,7 @@ defmodule Cardbox.Records do
         {:ok, {record, []}}
       else
         record
-        |> Ecto.Changeset.change(data: data, updated_by: Store.actor_id(mod, opts))
+        |> Ecto.Changeset.change(data: data, search_text: Search.text(collection, data), updated_by: Store.actor_id(mod, opts))
         |> Ecto.Changeset.force_change(:data, data)
         |> repo.update()
         |> case do

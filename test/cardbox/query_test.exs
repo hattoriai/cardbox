@@ -92,6 +92,24 @@ defmodule Cardbox.QueryTest do
     assert c |> titles(%{"search" => "nothing"}) == []
   end
 
+  test "a search finds each of its words, without case or accents, on every database", %{collection: c} do
+    insert!(c, %{"Title" => "Élan vital", "Tags" => ["Docs"]})
+    insert!(c, %{"Title" => "ÜBER straße"})
+    assert titles(c, %{"search" => "elan"}) == ["Élan vital"]
+    assert titles(c, %{"search" => "ÉLAN docs"}) == ["Élan vital"]
+    assert titles(c, %{"search" => "über STRASSE"}) == []
+    assert titles(c, %{"search" => "uber stra"}) == ["ÜBER straße"]
+    assert titles(c, %{"search" => "vital bug"}) == []
+  end
+
+  test "the search text follows renamed choices and deleted fields", %{collection: c} do
+    {:ok, c} = Box.update_field(c, "Priority", %{options: %{choices: [%{id: "high", name: "Urgent"}, "Low", "Medium"]}})
+    assert titles(c, %{"search" => "urgent"}) == ["Alpha"]
+    {:ok, c} = Box.delete_field(c, "Title")
+    {:ok, records} = Box.list(c, %{"search" => "gamma"})
+    assert records == []
+  end
+
   test "sorts: texts without case, choices in their order, empty values last", %{collection: c} do
     assert titles(c, %{"sort" => [%{"field" => "title"}]}) == ["Alpha", "beta", "delta 100%", "Gamma"]
     assert titles(c, %{"sort" => [%{"field" => "priority", "dir" => "desc"}]}) == ["Alpha", "delta 100%", "beta", "Gamma"]

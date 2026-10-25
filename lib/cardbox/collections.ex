@@ -7,7 +7,7 @@ defmodule Cardbox.Collections do
 
   import Ecto.Query
 
-  alias Cardbox.{Collection, Error, Field, Key, Record, Store, Type, View, Views}
+  alias Cardbox.{Collection, Error, Field, Key, Record, Search, Store, Type, View, Views}
   alias Narabe.Position
 
   ## Collections
@@ -151,14 +151,16 @@ defmodule Cardbox.Collections do
          {:ok, options} <- new_options(mod, repo, collection, field, type, given),
          :ok <- relation_target(mod, type, options),
          {:ok, updated} <- repo.update(Ecto.Changeset.put_change(changeset, :options, options)) do
+      fields = Enum.map(collection.fields, &if(&1.id == field.id, do: updated, else: &1))
+      after_change = with_fields(collection, fields)
+
       cond do
-        retyped? -> convert(mod, repo, collection, field, updated)
-        field.type in ~w(select multi_select status) -> drop_choices(mod, repo, collection, field, updated)
+        retyped? -> convert(repo, after_change, field, updated)
+        field.type in ~w(select multi_select status) -> drop_choices(repo, after_change, field, updated)
         true -> :ok
       end
 
-      fields = Enum.map(collection.fields, &if(&1.id == field.id, do: updated, else: &1))
-      {:ok, {with_fields(collection, fields), updated}}
+      {:ok, {after_change, updated}}
     else
       {:error, %Ecto.Changeset{} = changeset} -> {:error, Error.from_changeset(changeset)}
       error -> error
@@ -235,8 +237,8 @@ defmodule Cardbox.Collections do
   # Each record's value of a field that changed its type, read as words or
   # numbers and given to the new type; a value the new type does not take
   # is left out.
-  defp convert(mod, repo, collection, old, new) do
-    each_record(repo, collection.id, fn record ->
+  defp convert(repo, collection, old, new) do
+    each_record(repo, collection, fn record ->
       plain = Type.plain(old, Map.get(record.data, old.key))
 
       value =
@@ -253,9 +255,6 @@ defmodule Cardbox.Collections do
 
       put_value(record, new.key, value)
     end)
-
-    _ = mod
-    :ok
   end
 
   defp cast_or_nil(value, field) do
@@ -265,13 +264,14 @@ defmodule Cardbox.Collections do
     end
   end
 
-  # The records' values of choices a field no longer has, left out.
-  defp drop_choices(_mod, repo, collection, old, new) do
+  # The records' values of choices a field no longer has, left out; and
+  # their search text, which has the choices' names.
+  defp drop_choices(repo, collection, old, new) do
     kept = MapSet.new(Field.choices(new), & &1["id"])
     removed = for %{"id" => id} <- Field.choices(old), not MapSet.member?(kept, id), do: id
 
-    if removed != [] do
-      each_record(repo, collection.id, fn record ->
+    if removed != [] or Field.choices(old) != Field.choices(new) do
+      each_record(repo, collection, fn record ->
         case Map.get(record.data, old.key) do
           ids when is_list(ids) -> put_value(record, old.key, Enum.reject(ids, &(&1 in removed)))
           id -> if id in removed, do: put_value(record, old.key, nil), else: record.data
@@ -290,7 +290,9 @@ defmodule Cardbox.Collections do
              repo.delete!(field)
              remove_key(repo, Store.dialect(mod), collection.id, field.key)
              Views.drop_field(repo, collection.id, field.key)
-             {:ok, with_fields(collection, Enum.reject(collection.fields, &(&1.id == field.id)))}
+             collection = with_fields(collection, Enum.reject(collection.fields, &(&1.id == field.id)))
+             if Search.text(%{collection | fields: [field]}, %{field.key => "x"}), do: each_record(repo, collection, & &1.data)
+             {:ok, collection}
            end) do
       Store.broadcast(mod, Store.event(:field_deleted, collection.id, opts, mod, collection: collection, field: field))
       {:ok, collection}
@@ -399,22 +401,31 @@ defmodule Cardbox.Collections do
   defp records_query(collection_id), do: from(r in Record, where: r.collection_id == ^collection_id, order_by: r.id)
 
   # Calls the function on each record of a collection, a hundred at a time,
-  # and writes the data it returns when it changed.
-  defp each_record(repo, collection_id, fun, after_id \\ 0) do
+  # and writes the data it returns, and the search text of the collection's
+  # fields, when they changed.
+  defp each_record(repo, collection, fun, after_id \\ 0) do
     batch =
-      from(r in Record, where: r.collection_id == ^collection_id and r.id > ^after_id, order_by: r.id, limit: 100)
+      from(r in Record, where: r.collection_id == ^collection.id and r.id > ^after_id, order_by: r.id, limit: 100)
       |> repo.all()
 
     for record <- batch do
       data = fun.(record)
+      search_text = Search.text(collection, data)
 
-      if data != record.data do
-        record |> Ecto.Changeset.change(data: data) |> repo.update!()
+      if data != record.data or search_text != record.search_text do
+        record |> Ecto.Changeset.change(data: data, search_text: search_text) |> repo.update!()
       end
     end
 
-    if length(batch) == 100, do: each_record(repo, collection_id, fun, List.last(batch).id)
+    if length(batch) == 100, do: each_record(repo, collection, fun, List.last(batch).id)
     :ok
+  end
+
+  @doc false
+  # Writes the search text of every record of a collection again: after an
+  # upgrade that changes what it holds.
+  def reindex(mod, %Collection{} = collection) do
+    Store.transaction(mod, fn repo -> {:ok, each_record(repo, collection, & &1.data)} end)
   end
 
   defp put_value(record, key, value) when value in [nil, "", []], do: Map.delete(record.data, key)

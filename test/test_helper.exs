@@ -23,7 +23,7 @@ repo =
     Application.put_env(:cardbox, CardboxTest.SQLiteRepo,
       database: path,
       pool: Ecto.Adapters.SQL.Sandbox,
-      pool_size: 5,
+      pool_size: 2,
       log: false
     )
 

@@ -147,6 +147,9 @@ defmodule Cardbox do
       @doc "Moves a field `after:` or `before:` another, or `to: :first` or `:last`."
       def move_field(collection, field, opts), do: Cardbox.Collections.move_field(__MODULE__, collection, field, opts)
 
+      @doc "Writes the search text of every record of a collection again, after an upgrade of Cardbox that asks for it."
+      def reindex(collection), do: Cardbox.Collections.reindex(__MODULE__, collection)
+
       ## Records
 
       @doc "The record of the collection with this id, or nil."

@@ -9,6 +9,10 @@ defmodule Cardbox.Record do
   Elixir, and `to_map/2` gives every value by field name, as an agent or a
   JSON API takes them.
 
+  `search_text` is the words of its texts and of its choices' names,
+  without case and accents, that a search looks in; Cardbox writes it with
+  the values.
+
   `position` is the record's place in the collection's own order (Narabe's
   position keys), the order of a view with no sort. `created_by` and
   `updated_by` are the ids of who made it and who changed it last.
@@ -22,6 +26,7 @@ defmodule Cardbox.Record do
           id: integer() | nil,
           collection_id: integer() | nil,
           data: map(),
+          search_text: String.t() | nil,
           position: String.t() | nil,
           created_by: String.t() | nil,
           updated_by: String.t() | nil,
@@ -32,6 +37,7 @@ defmodule Cardbox.Record do
   schema "cardbox_records" do
     belongs_to :collection, Cardbox.Collection
     field :data, :map, default: %{}
+    field :search_text, :string
     field :position, :string
     field :created_by, :string
     field :updated_by, :string

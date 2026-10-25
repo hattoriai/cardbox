@@ -12,8 +12,9 @@ defmodule Mix.Tasks.Cardbox.Gen.Migration do
 
   The tables are the same on PostgreSQL and SQLite. On PostgreSQL the
   records' values are `jsonb` with a GIN index, which the filters on
-  multi-selects and relations use, and the position columns compare bytes
-  (`Narabe.Migration`).
+  multi-selects use, the search text has a trigram index (`pg_trgm`), and
+  the position columns compare bytes (`Narabe.Migration`). On SQLite, a
+  search reads the search text column as it is.
 
   ## Options
 
@@ -85,6 +86,7 @@ defmodule Mix.Tasks.Cardbox.Gen.Migration do
         create table(:cardbox_records) do
           add :collection_id, references(:cardbox_collections, on_delete: :delete_all), null: false
           add :data, :map, null: false
+          add :search_text, :text
           position()
           add :created_by, :string, size: 64
           add :updated_by, :string, size: 64
@@ -93,8 +95,13 @@ defmodule Mix.Tasks.Cardbox.Gen.Migration do
 
         create index(:cardbox_records, [:collection_id, :position])
 
+        # On PostgreSQL, an index of the values for the filters on lists, and
+        # a trigram index of the search text for searches (pg_trgm, which
+        # every PostgreSQL has, needs to be made once in each database).
         if repo().__adapter__() == Ecto.Adapters.Postgres do
           create index(:cardbox_records, [:data], using: "GIN")
+          execute "CREATE EXTENSION IF NOT EXISTS pg_trgm", ""
+          create index(:cardbox_records, ["search_text gin_trgm_ops"], name: :cardbox_records_search_text_index, using: "GIN")
         end
 
         create table(:cardbox_views) do

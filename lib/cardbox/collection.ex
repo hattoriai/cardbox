@@ -52,6 +52,13 @@ defmodule Cardbox.Collection do
   end
 
   @doc """
+  The field that names a record, as a relation shows it: the first text
+  field, or nil.
+  """
+  @spec title_field(t()) :: Cardbox.Field.t() | nil
+  def title_field(%__MODULE__{fields: fields}), do: Enum.find(fields, &(&1.type == "text"))
+
+  @doc """
   The field of a collection with this key, or with this name (without case),
   or nil. A field struct is taken as itself.
   """

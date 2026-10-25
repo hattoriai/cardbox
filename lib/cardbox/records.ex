@@ -39,6 +39,23 @@ defmodule Cardbox.Records do
     end
   end
 
+  @doc false
+  # The titles of records of a collection (Collection.title_field/1), by id:
+  # what a relation shows of the records it links to.
+  def titles(mod, collection_id, ids) do
+    ids = Enum.uniq(ids)
+
+    with true <- ids != [],
+         %Collection{} = collection <- Collections.get(mod, collection_id),
+         %Field{key: key} <- Collection.title_field(collection) do
+      from(r in Record, where: r.collection_id == ^collection_id and r.id in ^ids, select: {r.id, r.data})
+      |> Store.repo(mod).all()
+      |> Map.new(fn {id, data} -> {id, data[key] || "Untitled"} end)
+    else
+      _ -> Map.new(ids, &{&1, "##{&1}"})
+    end
+  end
+
   def meets?(%Collection{} = collection, query, %Record{} = record, opts) do
     with {:ok, query} <- parse(collection, query) do
       {:ok, query |> Condition.lower(collection, Condition.context(opts)) |> Condition.meets?(record)}

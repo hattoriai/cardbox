@@ -48,7 +48,7 @@ defmodule Cardbox.MixProject do
       # on SQLite, and on PostgreSQL with DATABASE_URL.
       {:ecto, "~> 3.13"},
       {:ecto_sql, "~> 3.13"},
-      {:ecto_sqlite3, "~> 0.22", only: :test},
+      {:ecto_sqlite3, "~> 0.22", only: [:dev, :test]},
       {:postgrex, "~> 0.19", only: :test},
       # The order of records and fields: Narabe's position keys, the same
       # its boards and lists move.
@@ -57,6 +57,11 @@ defmodule Cardbox.MixProject do
       # that has it open.
       {:phoenix_pubsub, "~> 2.1", optional: true},
       {:telemetry, "~> 1.0"},
+      # The views, each an optional binding (Cardbox.Masu, ...): the app
+      # has the libraries of the views it shows.
+      {:masu, "~> 0.7", optional: true},
+      # The development app (dev.exs).
+      {:bandit, "~> 1.5", only: :dev},
       {:stream_data, "~> 1.1", only: :test}
     ]
   end
@@ -107,6 +112,7 @@ defmodule Cardbox.MixProject do
 
   defp aliases do
     [
+      dev: "run --no-halt dev.exs",
       precommit: [
         "compile --warnings-as-errors",
         "deps.unlock --unused",

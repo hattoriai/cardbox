@@ -170,6 +170,9 @@ defmodule Cardbox do
       """
       def meets?(collection, query, record, opts \\ []), do: Cardbox.Records.meets?(collection, query, record, opts)
 
+      @doc "The titles of records of a collection by id: their first text field."
+      def titles(collection_id, ids), do: Cardbox.Records.titles(__MODULE__, collection_id, ids)
+
       @doc """
       Adds a record with values by field key or name. `after:` or `before:`
       a record, or `to: :first`, places it; it goes last otherwise.

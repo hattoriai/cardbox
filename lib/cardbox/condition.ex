@@ -11,12 +11,13 @@ defmodule Cardbox.Condition do
   #   {:has, ref, value}        a list that holds the value
   #   {:and, [c]}, {:or, [c]}, {:not, c}, true, false
   #
-  # A ref is {:data, key, kind}, a value of the record's data, or
-  # {:column, column, kind}, one of the record's own columns. A comparison
+  # A ref is {:data, key, kind}, a value of the record's data,
+  # {:column, column, kind}, one of the record's own columns, or
+  # {:links, {key, {field_id, side}}, :list}, a relation's links. A comparison
   # with no value is false, as SQL's NULL is in a WHERE; a :not is only ever
   # of a condition that is never NULL, or beside an :empty that catches it.
 
-  alias Cardbox.{Collection, Field, Filter, Query, Record, Search, Type}
+  alias Cardbox.{Collection, Field, Filter, Links, Query, Record, Search, Type}
 
   @type ref :: {:data, String.t(), Type.kind()} | {:column, atom(), Type.kind()}
   @type t ::
@@ -59,6 +60,7 @@ defmodule Cardbox.Condition do
   def ref(%Field{type: "updated_at"}), do: {:column, :updated_at, :datetime}
   def ref(%Field{type: "created_by"}), do: {:column, :created_by, :choice}
   def ref(%Field{type: "updated_by"}), do: {:column, :updated_by, :choice}
+  def ref(%Field{type: "relation", key: key} = field), do: {:links, {key, Links.side(field)}, :list}
   def ref(%Field{key: key} = field), do: {:data, key, Type.kind(field)}
 
   defp filter(nil, _collection, _ctx), do: true
@@ -274,6 +276,13 @@ defmodule Cardbox.Condition do
   end
 
   defp value({:column, column, _kind}, record), do: Map.fetch!(record, column)
+
+  defp value({:links, {key, _side}, :list}, record) do
+    case Map.get(record.data, key) do
+      ids when is_list(ids) -> ids
+      _ -> nil
+    end
+  end
 
   defp compare(op, %DateTime{} = actual, expected), do: order(op, DateTime.compare(actual, to_datetime(expected)))
   defp compare(op, actual, %DateTime{} = expected), do: order(op, DateTime.compare(to_datetime(actual), expected))

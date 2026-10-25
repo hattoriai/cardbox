@@ -7,7 +7,7 @@ defmodule Cardbox.Collections do
 
   import Ecto.Query
 
-  alias Cardbox.{Collection, Error, Field, Key, Record, Search, Store, Type, View, Views}
+  alias Cardbox.{Collection, Error, Field, Key, Links, Record, Search, Store, Type, View, Views}
   alias Narabe.Position
 
   ## Collections
@@ -97,19 +97,28 @@ defmodule Cardbox.Collections do
              end
            end) do
       Store.broadcast(mod, Store.event(:field_added, collection.id, opts, mod, collection: collection, field: field))
+
+      for reverse <- reverse_fields(Store.repo(mod), field) do
+        target = if reverse.collection_id == collection.id, do: collection, else: get(mod, reverse.collection_id)
+        Store.broadcast(mod, Store.event(:field_added, target.id, opts, mod, collection: target, field: reverse))
+      end
+
       {:ok, collection}
     end
   end
 
   defp do_add_field(mod, repo, collection, attrs) do
     {options, attrs} = Map.pop(attrs, "options", %{})
+    {reverse_of, attrs} = Map.pop(attrs, "__reverse_of")
+    options = options |> Kernel.||(%{}) |> stringify() |> Map.delete("reverse_of")
+    options = if reverse_of, do: Map.merge(options, %{"reverse_of" => reverse_of, "two_way" => true}), else: options
     changeset = Field.changeset(%Field{collection_id: collection.id}, attrs)
     name = Ecto.Changeset.get_field(changeset, :name)
     type = Ecto.Changeset.get_field(changeset, :type)
 
     with :ok <- changeset_ok(changeset),
          :ok <- unique_name(collection, name, nil),
-         {:ok, options} <- options(type, options || %{}, %{}),
+         {:ok, options} <- options(type, options, %{}),
          :ok <- relation_target(mod, type, options) do
       key = Key.from_name(name, Enum.map(collection.fields, & &1.key), "field")
       position = position(collection.fields, Map.get(attrs, "position"))
@@ -120,11 +129,47 @@ defmodule Cardbox.Collections do
       |> Ecto.Changeset.put_change(:position, position)
       |> repo.insert()
       |> case do
-        {:ok, field} -> {:ok, with_fields(collection, [field | collection.fields]), field}
+        {:ok, field} -> {:ok, with_fields(collection, [field | collection.fields]), field} |> two_way(mod, repo)
         {:error, changeset} -> {:error, Error.from_changeset(changeset)}
       end
     end
   end
+
+  # A two-way relation's other side: a relation of its collection back to
+  # this one, named after this collection, that reads the same links from
+  # their targets.
+  defp two_way({:ok, collection, %Field{type: "relation", options: %{"two_way" => true} = options} = field}, mod, repo)
+       when not is_map_key(options, "reverse_of") do
+    target_id = options["collection_id"]
+    target = if target_id == collection.id, do: collection, else: get(mod, target_id)
+    name = free_name(target, collection.name)
+    attrs = %{"name" => name, "type" => "relation", "options" => %{"collection_id" => collection.id}, "__reverse_of" => field.id}
+
+    case do_add_field(mod, repo, target, attrs) do
+      {:ok, target, _reverse} when target_id == collection.id -> {:ok, target, field}
+      {:ok, _target, _reverse} -> {:ok, collection, field}
+      error -> error
+    end
+  end
+
+  defp two_way(result, _mod, _repo), do: result
+
+  defp free_name(collection, name) do
+    taken = MapSet.new(collection.fields, &String.downcase(&1.name))
+
+    Stream.iterate(1, &(&1 + 1))
+    |> Stream.map(fn n -> if n == 1, do: name, else: "#{name} #{n}" end)
+    |> Enum.find(&(not MapSet.member?(taken, String.downcase(&1))))
+  end
+
+  # The other sides of a two-way relation.
+  defp reverse_fields(repo, %Field{type: "relation", id: id}) do
+    from(f in Field, where: f.type == "relation")
+    |> repo.all()
+    |> Enum.filter(&(&1.options["reverse_of"] == id))
+  end
+
+  defp reverse_fields(_repo, _field), do: []
 
   def update_field(mod, %Collection{} = collection, ref, attrs, opts) do
     attrs = stringify(attrs)
@@ -171,6 +216,15 @@ defmodule Cardbox.Collections do
   # field's options before; for a field that becomes a select, a
   # multi-select or a status with no choices given, a choice for each value
   # its records have.
+  defp new_options(_mod, _repo, _collection, %Field{type: "relation"} = field, "relation", given) when given != nil do
+    given = stringify(given)
+    kept = Map.take(field.options, ~w(collection_id two_way reverse_of))
+
+    if Map.take(given, ~w(collection_id two_way)) |> Enum.all?(fn {k, v} -> kept[k] == v end),
+      do: options("relation", Map.merge(given, kept), field.options),
+      else: {:error, Error.invalid([{"options", "a relation keeps its collection and its sides; add a new field for others"}])}
+  end
+
   defp new_options(mod, repo, collection, field, type, given) do
     cond do
       given != nil and type == field.type ->
@@ -238,8 +292,11 @@ defmodule Cardbox.Collections do
   # numbers and given to the new type; a value the new type does not take
   # is left out.
   defp convert(repo, collection, old, new) do
+    links = if old.type == "relation", do: relation_values(repo, collection, old), else: %{}
+
     each_record(repo, collection, fn record ->
-      plain = Type.plain(old, Map.get(record.data, old.key))
+      old_value = if old.type == "relation", do: Map.get(links, record.id), else: Map.get(record.data, old.key)
+      plain = Type.plain(old, old_value)
 
       value =
         cond do
@@ -253,8 +310,21 @@ defmodule Cardbox.Collections do
             cast_or_nil(plain, new)
         end
 
-      put_value(record, new.key, value)
+      put_value(record, new.key, if(new.type == "relation", do: nil, else: value))
     end)
+
+    if old.type == "relation" do
+      Links.delete_field_links(repo, old)
+      for reverse <- reverse_fields(repo, old), do: repo.delete!(reverse)
+    end
+
+    :ok
+  end
+
+  # The links of a relation, by record.
+  defp relation_values(repo, collection, field) do
+    records = repo.all(from(r in Record, where: r.collection_id == ^collection.id, select: struct(r, [:id, :data])))
+    for record <- Links.fill(repo, %{collection | fields: [field]}, records), into: %{}, do: {record.id, record.data[field.key]}
   end
 
   defp cast_or_nil(value, field) do
@@ -287,10 +357,15 @@ defmodule Cardbox.Collections do
          :ok <- Store.allow(mod, opts, :change_fields, collection),
          {:ok, collection} <-
            Store.transaction(mod, fn repo ->
+             reverses = reverse_fields(repo, field)
+             for reverse <- reverses, do: repo.delete!(reverse)
              repo.delete!(field)
              remove_key(repo, Store.dialect(mod), collection.id, field.key)
              Views.drop_field(repo, collection.id, field.key)
-             collection = with_fields(collection, Enum.reject(collection.fields, &(&1.id == field.id)))
+             gone = MapSet.new([field.id | Enum.map(reverses, & &1.id)])
+             for r <- reverses, r.collection_id != collection.id, do: Views.drop_field(repo, r.collection_id, r.key)
+             for r <- reverses, r.collection_id == collection.id, do: Views.drop_field(repo, collection.id, r.key)
+             collection = with_fields(collection, Enum.reject(collection.fields, &MapSet.member?(gone, &1.id)))
              if Search.text(%{collection | fields: [field]}, %{field.key => "x"}), do: each_record(repo, collection, & &1.data)
              {:ok, collection}
            end) do

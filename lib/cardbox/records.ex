@@ -6,12 +6,17 @@ defmodule Cardbox.Records do
 
   import Ecto.Query
 
-  alias Cardbox.{Collection, Collections, Condition, Error, Field, Query, Record, Search, SQL, Store, Type, View, Views}
+  alias Cardbox.{Collection, Collections, Condition, Error, Field, Links, Query, Record, Search, SQL, Store, Type, View, Views}
 
   ## Reading
 
-  def get(mod, %Collection{id: id}, record_id) do
-    Store.repo(mod).one(from(r in Record, where: r.collection_id == ^id and r.id == ^record_id))
+  def get(mod, %Collection{id: id} = collection, record_id) do
+    repo = Store.repo(mod)
+
+    case repo.one(from(r in Record, where: r.collection_id == ^id and r.id == ^record_id)) do
+      nil -> nil
+      record -> hd(Links.fill(repo, collection, [record]))
+    end
   end
 
   def list(mod, %Collection{} = collection, query, opts) do
@@ -22,7 +27,8 @@ defmodule Cardbox.Records do
         |> then(&if(limit = opts[:limit], do: limit(&1, ^limit), else: &1))
         |> then(&if(offset = opts[:offset], do: offset(&1, ^offset), else: &1))
 
-      {:ok, Store.repo(mod).all(ecto)}
+      repo = Store.repo(mod)
+      {:ok, Links.fill(repo, collection, repo.all(ecto))}
     end
   end
 
@@ -55,7 +61,9 @@ defmodule Cardbox.Records do
     with :ok <- Store.allow(mod, opts, :insert, collection),
          {:ok, record} <-
            Store.transaction(mod, fn repo -> do_insert(mod, repo, collection, values, opts) end) do
+      {record, linked} = record
       Store.broadcast(mod, Store.event(:record_inserted, collection.id, opts, mod, record: record))
+      broadcast_linked(mod, linked, opts)
       {:ok, record}
     end
   end
@@ -68,13 +76,14 @@ defmodule Cardbox.Records do
              |> Enum.with_index()
              |> Enum.reduce_while({:ok, []}, fn {values, i}, {:ok, acc} ->
                case do_insert(mod, repo, collection, values, opts) do
-                 {:ok, record} -> {:cont, {:ok, [record | acc]}}
+                 {:ok, inserted} -> {:cont, {:ok, [inserted | acc]}}
                  {:error, error} -> {:halt, {:error, %{error | message: "record #{i + 1}: " <> error.message}}}
                end
              end)
            end) do
-      records = Enum.reverse(records)
+      {records, linked} = records |> Enum.reverse() |> Enum.unzip()
       for record <- records, do: Store.broadcast(mod, Store.event(:record_inserted, collection.id, opts, mod, record: record))
+      broadcast_linked(mod, Enum.concat(linked), opts)
       {:ok, records}
     end
   end
@@ -85,16 +94,52 @@ defmodule Cardbox.Records do
     with {:ok, changes} <- cast_values(mod, repo, collection, values, opts) do
       data = for {key, value} <- changes, value != nil, into: %{}, do: {key, value}
 
-      %Record{
-        collection_id: collection.id,
-        data: data,
-        search_text: Search.text(collection, data),
-        position: insert_position(repo, collection, opts),
-        created_by: actor,
-        updated_by: actor
-      }
-      |> repo.insert()
+      record =
+        repo.insert!(%Record{
+          collection_id: collection.id,
+          data: stored(collection, data),
+          search_text: Search.text(collection, data),
+          position: insert_position(repo, collection, opts),
+          created_by: actor,
+          updated_by: actor
+        })
+
+      linked = put_links(repo, collection, record.id, data, Map.keys(data))
+      {:ok, {%{record | data: data}, linked}}
     end
+  end
+
+  # A record's data as its row keeps it: without its relations, which are
+  # links.
+  defp stored(collection, data) do
+    Map.drop(data, for(field <- collection.fields, Links.relation?(field), do: field.key))
+  end
+
+  # The links of the relations among the keys, written; the records at
+  # their other ends whose links changed.
+  defp put_links(repo, collection, record_id, data, keys) do
+    for field <- collection.fields, Links.relation?(field), field.key in keys, linked <- Links.put(repo, field, record_id, Map.get(data, field.key)),
+      do: linked
+  end
+
+  # A record update for each record whose links changed at the other end of
+  # a relation, with the key of the field that shows them there.
+  defp broadcast_linked(_mod, [], _opts), do: :ok
+
+  defp broadcast_linked(mod, linked, opts) do
+    repo = Store.repo(mod)
+    records = repo.all(from(r in Record, where: r.id in ^Enum.map(linked, &elem(&1, 0))))
+    collections = records |> Enum.map(& &1.collection_id) |> Enum.uniq() |> Map.new(&{&1, Collections.get(mod, &1)})
+
+    for record <- records,
+        collection = collections[record.collection_id],
+        changed = Enum.flat_map(linked, fn {id, field, side} -> if id == record.id, do: Links.keys(collection.fields, field, side), else: [] end),
+        changed != [] do
+      [record] = Links.fill(repo, collection, [record])
+      Store.broadcast(mod, Store.event(:record_updated, collection.id, opts, mod, record: record, changed: Enum.uniq(changed)))
+    end
+
+    :ok
   end
 
   defp insert_position(repo, collection, opts) do
@@ -112,12 +157,13 @@ defmodule Cardbox.Records do
 
   def update(mod, %Collection{} = collection, record_ref, changes, opts) do
     with :ok <- Store.allow(mod, opts, :update, collection),
-         {:ok, {record, changed}} <-
+         {:ok, {record, changed, linked}} <-
            Store.transaction(mod, fn repo -> do_update(mod, repo, collection, record_ref, changes, opts) end) do
       if changed != [] do
         Store.broadcast(mod, Store.event(:record_updated, collection.id, opts, mod, record: record, changed: changed))
       end
 
+      broadcast_linked(mod, linked, opts)
       {:ok, record}
     end
   end
@@ -135,16 +181,16 @@ defmodule Cardbox.Records do
       changed = for {key, _} <- changes, Map.get(data, key) != Map.get(record.data, key), do: key
 
       if changed == [] do
-        {:ok, {record, []}}
+        {:ok, {record, [], []}}
       else
-        record
-        |> Ecto.Changeset.change(data: data, search_text: Search.text(collection, data), updated_by: Store.actor_id(mod, opts))
-        |> Ecto.Changeset.force_change(:data, data)
-        |> repo.update()
-        |> case do
-          {:ok, record} -> {:ok, {record, changed}}
-          error -> error
-        end
+        updated =
+          record
+          |> Ecto.Changeset.change(data: stored(collection, data), search_text: Search.text(collection, data), updated_by: Store.actor_id(mod, opts))
+          |> Ecto.Changeset.force_change(:data, stored(collection, data))
+          |> repo.update!()
+
+        linked = put_links(repo, collection, record.id, data, changed)
+        {:ok, {%{updated | data: data}, changed, linked}}
       end
     end
   end
@@ -153,13 +199,13 @@ defmodule Cardbox.Records do
   # writer at a time).
   defp lock(mod, repo, collection, %Record{id: id}), do: lock(mod, repo, collection, id)
 
-  defp lock(mod, repo, %Collection{id: collection_id}, id) do
+  defp lock(mod, repo, %Collection{id: collection_id} = collection, id) do
     query = from(r in Record, where: r.collection_id == ^collection_id and r.id == ^id)
     query = if Store.dialect(mod) == :postgres, do: lock(query, "FOR UPDATE"), else: query
 
     case repo.one(query) do
       nil -> {:error, Error.not_found("the record #{inspect(id)}")}
-      record -> {:ok, record}
+      record -> {:ok, hd(Links.fill(repo, collection, [record]))}
     end
   end
 
@@ -193,40 +239,17 @@ defmodule Cardbox.Records do
 
   def delete(mod, %Collection{} = collection, record_ref, opts) do
     with :ok <- Store.allow(mod, opts, :delete, collection),
-         {:ok, record} <-
+         {:ok, {record, linked}} <-
            Store.transaction(mod, fn repo ->
              with {:ok, record} <- lock(mod, repo, collection, record_ref) do
-               repo.delete!(record)
-               unlink(mod, repo, collection, record)
-               {:ok, record}
+               linked = Links.around(repo, record.id)
+               repo.delete!(%{record | data: stored(collection, record.data)})
+               {:ok, {record, Enum.reject(linked, &(elem(&1, 0) == record.id))}}
              end
            end) do
       Store.broadcast(mod, Store.event(:record_deleted, collection.id, opts, mod, record: record))
+      broadcast_linked(mod, linked, opts)
       {:ok, record}
-    end
-  end
-
-  # The links to a deleted record, removed from the relations of every
-  # collection that links to its collection.
-  defp unlink(mod, repo, collection, record) do
-    fields =
-      from(f in Field, where: f.type == "relation")
-      |> repo.all()
-      |> Enum.filter(&(&1.options["collection_id"] == collection.id))
-
-    dialect = Store.dialect(mod)
-
-    for field <- fields do
-      condition = SQL.condition({:has, {:data, field.key, :list}, record.id}, dialect)
-
-      from(r in Record, as: :record, where: r.collection_id == ^field.collection_id)
-      |> where(^condition)
-      |> repo.all()
-      |> Enum.each(fn linked ->
-        ids = Enum.reject(Map.get(linked.data, field.key, []), &(&1 == record.id))
-        data = if ids == [], do: Map.delete(linked.data, field.key), else: Map.put(linked.data, field.key, ids)
-        linked |> Ecto.Changeset.change(data: data) |> repo.update!()
-      end)
     end
   end
 

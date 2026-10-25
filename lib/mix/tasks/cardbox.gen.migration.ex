@@ -2,8 +2,9 @@ defmodule Mix.Tasks.Cardbox.Gen.Migration do
   @shortdoc "Writes the migration of Cardbox's tables"
 
   @moduledoc """
-  Writes the migration of the four tables where Cardbox keeps collections,
-  their fields, their records and their views.
+  Writes the migration of the five tables where Cardbox keeps collections,
+  their fields, their records, the links of their relations and their
+  views.
 
       $ mix cardbox.gen.migration
       $ mix cardbox.gen.migration --migrations-path priv/other_repo/migrations
@@ -103,6 +104,20 @@ defmodule Mix.Tasks.Cardbox.Gen.Migration do
           execute "CREATE EXTENSION IF NOT EXISTS pg_trgm", ""
           create index(:cardbox_records, ["search_text gin_trgm_ops"], name: :cardbox_records_search_text_index, using: "GIN")
         end
+
+        # The links of relations: from a record, by a field, to a record. Each
+        # goes with its field and with either record.
+        create table(:cardbox_links) do
+          add :field_id, references(:cardbox_fields, on_delete: :delete_all), null: false
+          add :record_id, references(:cardbox_records, on_delete: :delete_all), null: false
+          add :target_id, references(:cardbox_records, on_delete: :delete_all), null: false
+          add :position, :integer, null: false, default: 0
+          timestamps(type: :utc_datetime_usec, updated_at: false)
+        end
+
+        create unique_index(:cardbox_links, [:field_id, :record_id, :target_id])
+        create index(:cardbox_links, [:target_id, :field_id])
+        create index(:cardbox_links, [:record_id])
 
         create table(:cardbox_views) do
           add :collection_id, references(:cardbox_collections, on_delete: :delete_all), null: false

@@ -17,7 +17,7 @@ defmodule Cardbox.SQL do
 
   import Ecto.Query
 
-  alias Cardbox.{Collection, Condition, Field, Query, Record, Sort}
+  alias Cardbox.{Collection, Condition, Field, Link, Query, Record, Sort}
 
   @type dialect :: :postgres | :sqlite
 
@@ -146,6 +146,7 @@ defmodule Cardbox.SQL do
   end
 
   defp empty({:column, column, _kind}, _dialect), do: dynamic([record: r], is_nil(field(r, ^column)))
+  defp empty({:links, {_key, side}, :list}, _dialect), do: dynamic(not exists(links(side)))
 
   defp empty({:data, key, _kind}, :postgres) do
     dynamic([record: r], fragment("coalesce((?->?) IN ('null'::jsonb, '\"\"'::jsonb, '[]'::jsonb), true)", r.data, ^key))
@@ -162,6 +163,12 @@ defmodule Cardbox.SQL do
       )
     )
   end
+
+  defp has({:links, {_key, {_field, :source} = side}, :list}, id, _dialect),
+    do: dynamic(exists(where(links(side), [l], l.target_id == ^id)))
+
+  defp has({:links, {_key, {_field, :target} = side}, :list}, id, _dialect),
+    do: dynamic(exists(where(links(side), [l], l.record_id == ^id)))
 
   defp has({:data, key, _kind}, value, :postgres) when is_integer(value) do
     dynamic([record: r], fragment("coalesce((?->?) @> jsonb_build_array(?::bigint), false)", r.data, ^key, ^value))
@@ -195,6 +202,13 @@ defmodule Cardbox.SQL do
   defp param(_ref, value, _dialect), do: value
 
   defp path(key), do: "$." <> key
+
+  # The links of the record a relation reads, from its side.
+  defp links({field_id, :source}),
+    do: from(l in Link, where: l.field_id == ^field_id and l.record_id == parent_as(:record).id, select: 1)
+
+  defp links({field_id, :target}),
+    do: from(l in Link, where: l.field_id == ^field_id and l.target_id == parent_as(:record).id, select: 1)
 
   @doc false
   # The query's sorts, empty values last, then the collection's own order.

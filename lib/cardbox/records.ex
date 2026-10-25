@@ -55,6 +55,93 @@ defmodule Cardbox.Records do
   end
 
   @doc false
+  # The records of a query grouped by fields, and counted or summed, in the
+  # database (Cardbox.SQL.group/6).
+  def group(mod, %Collection{} = collection, query, opts) do
+    with {:ok, query} <- parse(collection, query),
+         {:ok, by} <- group_fields(collection, List.wrap(Keyword.get(opts, :by, []))),
+         {:ok, aggregate} <- aggregate(collection, Keyword.get(opts, :value, :count)) do
+      rows =
+        collection
+        |> SQL.group(query, Store.dialect(mod), by, aggregate, opts)
+        |> Store.repo(mod).all()
+        |> Enum.map(fn %{groups: groups, value: value} ->
+          %{
+            "groups" => for(i <- 0..(length(by) - 1)//1, do: groups[:"g#{i}"]),
+            "value" => number(value)
+          }
+        end)
+
+      {:ok, rows}
+    end
+  end
+
+  defp group_fields(collection, refs) do
+    Enum.reduce_while(refs, {:ok, []}, fn ref, {:ok, acc} ->
+      {ref, unit} = if is_tuple(ref), do: ref, else: {ref, nil}
+
+      case group_field(collection, ref, unit) do
+        {:ok, field} -> {:cont, {:ok, acc ++ [{field, unit}]}}
+        {:error, message} -> {:halt, {:error, Error.invalid([{nil, message}], collection.fields)}}
+      end
+    end)
+  end
+
+  defp group_field(collection, ref, unit) do
+    field = Collection.field(collection, ref)
+    kind = field && Type.kind(field)
+
+    cond do
+      field == nil ->
+        {:error, "the collection has no field #{inspect(ref)} to group by"}
+
+      kind == :list ->
+        {:error, "#{inspect(field.name)} holds several values and does not group"}
+
+      unit != nil and kind not in [:date, :datetime] ->
+        {:error, "only dates group by #{unit}"}
+
+      unit not in [nil, :day, :month, :year] ->
+        {:error, "a date groups by :day, :month or :year, got: #{inspect(unit)}"}
+
+      true ->
+        {:ok, field}
+    end
+  end
+
+  defp aggregate(_collection, :count), do: {:ok, :count}
+
+  defp aggregate(collection, {op, ref}) when op in [:sum, :mean, :min, :max] do
+    case Collection.field(collection, ref) do
+      %Field{type: "number"} = field ->
+        {:ok, {op, field}}
+
+      _ ->
+        {:error,
+         Error.invalid(
+           [{nil, "#{op} takes a number field, got: #{inspect(ref)}"}],
+           collection.fields
+         )}
+    end
+  end
+
+  defp aggregate(collection, other),
+    do:
+      {:error,
+       Error.invalid(
+         [
+           {nil,
+            "a value is :count or {:sum | :mean | :min | :max, field}, got: #{inspect(other)}"}
+         ],
+         collection.fields
+       )}
+
+  defp number(%Decimal{} = d),
+    do: if(Decimal.integer?(d), do: Decimal.to_integer(d), else: Decimal.to_float(d))
+
+  defp number(value), do: value
+
+  @doc false
   # The titles of records of a collection (Collection.title_field/1), by id:
   # what a relation shows of the records it links to.
   def titles(mod, collection_id, ids) do

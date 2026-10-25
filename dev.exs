@@ -184,6 +184,9 @@ defmodule CardboxDev.Seeds do
           %{name: "Board", type: "board", options: %{group_by: "status"}},
           %{name: "My work", type: "table", query: %{"filter" => %{"and" => [%{"field" => "owner", "op" => "eq", "value" => "me"}, %{"field" => "status", "op" => "in_group", "value" => ["todo", "doing"]}]}, "sort" => [%{"field" => "due"}]}, options: %{hidden: ~w(owner updated)}},
           %{name: "Dependencies", type: "canvas", options: %{edges: "blocked_by"}},
+          %{name: "Due dates", type: "calendar", options: %{date_field: "due"}},
+          %{name: "Budget by status", type: "chart", options: %{kind: "bar", x: "status", y: %{sum: "budget"}, color: "priority"}},
+          %{name: "Work by month", type: "chart", options: %{kind: "bar", x: "due", unit: "month", color: "status"}},
           %{name: "Due soon", type: "table", query: %{"filter" => %{"and" => [%{"field" => "due", "op" => "within", "value" => "next_month"}, %{"field" => "status", "op" => "in_group", "value" => ["todo", "doing"]}]}, "sort" => [%{"field" => "due"}]}}
         ] do
       {:ok, _} = Box.save_view(projects, attrs)
@@ -221,9 +224,13 @@ defmodule CardboxDev.Layouts do
         <link rel="stylesheet" href="/vendor/masu/masu.css" />
         <link rel="stylesheet" href="/vendor/narabe/narabe.css" />
         <link rel="stylesheet" href="/vendor/hakushi/hakushi.css" />
+        <link rel="stylesheet" href="/vendor/koyomi/koyomi.css" />
+        <link rel="stylesheet" href="/vendor/fude/fude.css" />
         <link :if={@sumi} rel="stylesheet" href="/vendor/masu/masu-sumi.css" />
         <link :if={@sumi} rel="stylesheet" href="/vendor/narabe/narabe-sumi.css" />
         <link :if={@sumi} rel="stylesheet" href="/vendor/hakushi/hakushi-sumi.css" />
+        <link :if={@sumi} rel="stylesheet" href="/vendor/koyomi/koyomi-sumi.css" />
+        <link :if={@sumi} rel="stylesheet" href="/vendor/fude/fude-sumi.css" />
         <style>
           :root { color-scheme: light; --a-accent: #2e6b5c; --a-bg: #faf9f7; --a-side: #f3f1ed; --a-line: #e7e3dc; --a-ink: #1f1d1a; --a-muted: #79736a; --a-card: #fff; --a-col: #f1efea; }
           [data-theme="dark"] { color-scheme: dark; --a-bg: #17161a; --a-side: #1e1d21; --a-line: #2c2a30; --a-ink: #eceae6; --a-muted: #9c968e; --a-accent: #6fbfa5; --a-card: #222126; --a-col: #1c1b1f; }
@@ -284,6 +291,17 @@ defmodule CardboxDev.Layouts do
           .cardbox-node .hakushi-handle { opacity: 0; }
           .hakushi-node:hover .hakushi-handle, .hakushi[data-ui-connecting] .hakushi-handle { opacity: 1; }
 
+          /* The calendar: two months, and the records of the day picked. */
+          .calendar-view { display: grid; grid-template-columns: auto 1fr; gap: 1.5rem; align-items: start; overflow: auto; }
+          .calendar-view .day { display: flex; flex-direction: column; gap: 0.625rem; max-width: 30rem; }
+          .calendar-view .day h2 { margin: 0; font-size: 0.9375rem; font-weight: 600; }
+          .calendar-view .day p { margin: 0; color: var(--a-muted); font-size: 0.8125rem; }
+          .legend { display: flex; gap: 0.875rem; color: var(--a-muted); font-size: 0.75rem; }
+          .legend i { display: inline-block; width: 0.5rem; height: 0.5rem; margin-right: 0.3rem; border-radius: 99px; background: var(--c); }
+
+          /* The chart: on a card of its own. */
+          .chart-view { padding: 1.25rem 1.5rem; border: 1px solid var(--a-line); border-radius: 10px; background: var(--a-card); }
+
           /* The board: a column for each choice of the status. */
           .board-wrap { flex: 1; min-height: 0; overflow: auto; }
           .board-wrap .narabe-board { gap: 0.875rem; align-items: flex-start; }
@@ -303,7 +321,9 @@ defmodule CardboxDev.Layouts do
               "phoenix_live_view": "/vendor/phoenix_live_view/phoenix_live_view.esm.js",
               "masu": "/vendor/masu/masu.esm.js",
               "narabe": "/vendor/narabe/narabe.esm.js",
-              "hakushi": "/vendor/hakushi/hakushi.esm.js"
+              "hakushi": "/vendor/hakushi/hakushi.esm.js",
+              "koyomi": "/vendor/koyomi/koyomi.esm.js",
+              "fude": "/vendor/fude/fude.esm.js"
             }
           }
         </script>
@@ -313,9 +333,11 @@ defmodule CardboxDev.Layouts do
           import { Masu } from "masu"
           import { Narabe } from "narabe"
           import { Hakushi } from "hakushi"
+          import { Koyomi } from "koyomi"
+          import { Fude } from "fude"
 
           const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
-          const liveSocket = new LiveSocket("/live", Socket, { hooks: { Masu, Narabe, Hakushi }, params: { _csrf_token: csrfToken } })
+          const liveSocket = new LiveSocket("/live", Socket, { hooks: { Masu, Narabe, Hakushi, Koyomi, Fude }, params: { _csrf_token: csrfToken } })
           liveSocket.connect()
           window.liveSocket = liveSocket
         </script>
@@ -377,6 +399,8 @@ defmodule CardboxDev.Layouts do
         "table" -> "M4 5h16v14H4zM4 10h16M10 5v14"
         "board" -> "M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v11h-4z"
         "canvas" -> "M5 6h5v4H5zM14 14h5v4h-5zM10 8h2a2 2 0 0 1 2 2v4"
+        "calendar" -> "M4 6h16v14H4zM4 10h16M9 3v4M15 3v4"
+        "chart" -> "M5 20V10M12 20V4M19 20v-7"
         _ -> "M4 6h16M4 12h16M4 18h16"
       end
 
@@ -445,6 +469,12 @@ defmodule CardboxDev.CollectionLive do
     assign(socket, records: records, count: length(records))
   end
 
+  defp load(%{assigns: %{view: %{type: "calendar"} = view, collection: collection, me: me}} = socket) do
+    day = socket.assigns[:day] || Date.utc_today()
+    {:ok, records} = Cardbox.Koyomi.on_day(Box, collection, view, day, me: me.id)
+    assign(socket, day: day, records: records, count: length(records))
+  end
+
   defp load(%{assigns: %{view: view, collection: collection, me: me}} = socket) do
     {:ok, count} = Box.count(collection, view, me: me.id)
     assign(socket, count: count, records: [])
@@ -479,6 +509,28 @@ defmodule CardboxDev.CollectionLive do
               <.card record={record} collection={@collection} />
             </:record>
           </Cardbox.Hakushi.canvas>
+        <% end %>
+        <%= if @view && @view.type == "calendar" do %>
+          <div class="calendar-view">
+            <div>
+              <Cardbox.Koyomi.calendar id="calendar" view={@view} on_change="day" months={2} value={@day} />
+              <div class="legend">
+                <span><i style="--c: var(--koyomi-tone-muted, #a8a29a)"></i>To do</span>
+                <span><i style="--c: var(--koyomi-tone-accent, #3b6fd9)"></i>Doing</span>
+                <span><i style="--c: var(--koyomi-tone-success, #2e7d55)"></i>Done</span>
+              </div>
+            </div>
+            <div class="day">
+              <h2>{Calendar.strftime(@day, "%A, %-d %B")}</h2>
+              <p :if={@records == []}>Nothing is due on this day. Pick a day with marks.</p>
+              <.card :for={record <- @records} record={record} collection={@collection} />
+            </div>
+          </div>
+        <% end %>
+        <%= if @view && @view.type == "chart" do %>
+          <div class="chart-view">
+            <Cardbox.Fude.chart id={"chart-#{@view.id}"} cardbox={Box} collection={@collection} view={@view} people={CardboxDev.People.all()} me={@me.id} height={380} />
+          </div>
         <% end %>
         <%= if @view && @view.type == "board" do %>
           <div class="board-wrap">
@@ -589,6 +641,16 @@ defmodule CardboxDev.CollectionLive do
   end
 
   @impl true
+  def handle_event("koyomi:days", %{"id" => "calendar"} = params, socket) do
+    %{collection: collection, view: view, me: me} = socket.assigns
+    Cardbox.Koyomi.handle_days(socket, params, Box, collection, view, me: me.id)
+  end
+
+  def handle_event("day", %{"value" => value}, socket) do
+    day = with {:ok, day} <- Date.from_iso8601(value || ""), do: day, else: (_ -> Date.utc_today())
+    {:noreply, socket |> assign(day: day) |> load()}
+  end
+
   def handle_event("move", params, socket) do
     %{collection: collection, group_field: field, me: me} = socket.assigns
 
@@ -623,8 +685,13 @@ defmodule CardboxDev.CollectionLive do
   end
 
   def handle_info({:cardbox, event}, socket) do
-    if socket.assigns.view, do: Cardbox.Masu.relay(event, "grid-#{socket.assigns.view.id}")
-    {:noreply, load(socket)}
+    view = socket.assigns.view
+    if view, do: Cardbox.Masu.relay(event, "grid-#{view.id}")
+    socket = load(socket)
+
+    # A calendar asks for its days again when records change.
+    socket = if view && view.type == "calendar", do: Koyomi.Live.refresh_days(socket, "calendar"), else: socket
+    {:noreply, socket}
   end
 end
 
@@ -676,6 +743,8 @@ defmodule CardboxDev.Endpoint do
   plug(Plug.Static, at: "/vendor/masu", from: {:masu, "priv/static"})
   plug(Plug.Static, at: "/vendor/narabe", from: {:narabe, "priv/static"})
   plug(Plug.Static, at: "/vendor/hakushi", from: {:hakushi, "priv/static"})
+  plug(Plug.Static, at: "/vendor/koyomi", from: {:koyomi, "priv/static"})
+  plug(Plug.Static, at: "/vendor/fude", from: {:fude, "priv/static"})
 
   plug(Plug.Parsers, parsers: [:urlencoded, :json], pass: ["*/*"], json_decoder: JSON)
   plug(Plug.Session, @session)

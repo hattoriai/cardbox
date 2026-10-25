@@ -39,6 +39,10 @@ defmodule Cardbox do
       config).
     * `:pubsub` - a `Phoenix.PubSub`, to broadcast each change to the
       collection's topic (`subscribe/1`, `Cardbox.Event`).
+    * `:views` - types of views of your own, beside Cardbox's
+      (`Cardbox.View`): `views: ["timeline", "map"]`. A view of one is saved,
+      listed and queried as any, and your `c:check_view/3` checks its
+      options; your app draws it. See the [Views](views.md) guide.
 
   ## Options of the functions
 
@@ -53,7 +57,7 @@ defmodule Cardbox do
 
   ## Callbacks
 
-  Two callbacks have defaults, and your module overrides them:
+  Three callbacks have defaults, and your module overrides them:
 
       @impl Cardbox
       def actor_id(%MyApp.Accounts.User{id: id}), do: "user:\#{id}"
@@ -63,6 +67,11 @@ defmodule Cardbox do
         do: MyApp.Permissions.allowed?(user, :manage, collection)
 
       def allow?(_actor, _action, _subject), do: true
+
+      @impl Cardbox
+      def check_view("timeline", %{"start" => _, "end" => _} = options, _collection), do: {:ok, options}
+      def check_view("timeline", _options, _collection), do: {:error, "a timeline names its start and end fields"}
+      def check_view(_type, options, _collection), do: {:ok, options}
   """
 
   alias Cardbox.{Collection, Record}
@@ -83,6 +92,15 @@ defmodule Cardbox do
   """
   @callback allow?(actor :: term(), action :: atom(), subject :: term()) :: boolean()
 
+  @doc """
+  Checks the options of a view of a type of your own (`:views`), when it is
+  saved: the options as they are kept, or an error that says what to write.
+  The options come with their keys as text. Takes them as they are by
+  default.
+  """
+  @callback check_view(type :: String.t(), options :: map(), collection :: Collection.t()) ::
+              {:ok, map()} | {:error, String.t()}
+
   @doc false
   defmacro __using__(opts) do
     {:__block__, [],
@@ -102,6 +120,7 @@ defmodule Cardbox do
       @behaviour Cardbox
       @cardbox_repo Keyword.get(opts, :repo)
       @cardbox_pubsub Keyword.get(opts, :pubsub)
+      @cardbox_views Cardbox.View.check_types!(Keyword.get(opts, :views, []))
 
       @doc false
       if @cardbox_repo do
@@ -111,6 +130,7 @@ defmodule Cardbox do
       end
 
       def __cardbox__(:pubsub), do: @cardbox_pubsub
+      def __cardbox__(:views), do: Cardbox.View.types() ++ @cardbox_views
 
       @impl Cardbox
       def actor_id(actor), do: Cardbox.default_actor_id(actor)
@@ -118,7 +138,10 @@ defmodule Cardbox do
       @impl Cardbox
       def allow?(_actor, _action, _subject), do: true
 
-      defoverridable actor_id: 1, allow?: 3
+      @impl Cardbox
+      def check_view(_type, options, _collection), do: {:ok, options}
+
+      defoverridable actor_id: 1, allow?: 3, check_view: 3
     end
   end
 
@@ -205,6 +228,15 @@ defmodule Cardbox do
       """
       def meets?(collection, query, record, opts \\ []),
         do: Cardbox.Records.meets?(collection, query, record, opts)
+
+      @doc """
+      The records of a query grouped by fields (`by:`, a field or a list, a
+      date with its unit: `{"due", :month}`), and counted or aggregated
+      (`value:`, `:count` or `{:sum, "budget"}`), in the database: for a
+      chart, or a board's counts.
+      """
+      def group(collection, query \\ nil, opts),
+        do: Cardbox.Records.group(__MODULE__, collection, query, opts)
 
       @doc "The titles of records of a collection by id: their first text field."
       def titles(collection_id, ids), do: Cardbox.Records.titles(__MODULE__, collection_id, ids)

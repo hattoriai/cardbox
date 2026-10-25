@@ -49,9 +49,9 @@ writes that row only, and two people moving at once both land.
 
 ## Roadmap
 
-* **More views.** Koyomi's calendar (records on their days, dragged to
-  another day), Fude's charts of a view (counted and summed in the
-  database), Narabe's list, a gallery.
+* **More of the views.** Records dragged to another day on the calendar
+  (Koyomi's calendar is a picker with marks today; a calendar of events
+  is for Koyomi), a gallery, Narabe's list as a component.
 * **Editors.** Erabi's pickers in cells and forms (choices you rename and
   recolour in the list, a status's groups), Koyomi's for dates, Kotoba
   for long texts.

@@ -319,6 +319,83 @@ defmodule Cardbox.SQL do
         select: 1
       )
 
+  @doc """
+  The records that meet a query, grouped by fields and aggregated in the
+  database: a row for each group, `%{"groups" => [value, ...], "value" =>
+  aggregate}`, where a group's value is as the records keep it (a
+  choice's id, a day as text) and a day field takes a `unit` (`:day`,
+  `:month` or `:year`, as `"2026-10"` for a month).
+
+  `by` is a list of `{field, unit}` (`unit` is nil but for dates), and
+  `aggregate` `:count` or `{:sum | :mean | :min | :max, field}` of a
+  number field.
+  """
+  @spec group(
+          Collection.t(),
+          Query.t(),
+          dialect(),
+          [{Field.t(), atom() | nil}],
+          term(),
+          keyword()
+        ) ::
+          Ecto.Query.t()
+  def group(%Collection{} = collection, %Query{} = query, dialect, by, aggregate, opts \\ []) do
+    # The group values are worked out once, in a subquery, and the outer
+    # query groups by its columns: PostgreSQL takes an expression with
+    # parameters in both SELECT and GROUP BY for two expressions.
+    keys = for i <- 0..(length(by) - 1)//1, do: :"g#{i}"
+
+    inner =
+      Enum.zip(keys, by)
+      |> Map.new(fn {key, {field, unit}} -> {key, group_value(field, unit, dialect)} end)
+      |> Map.put(:v, aggregated(aggregate, dialect))
+
+    rows =
+      collection
+      |> where_query(query, dialect, opts)
+      |> select([record: r], ^inner)
+      |> subquery()
+
+    groups = Map.new(keys, &{&1, dynamic([group: s], field(s, ^&1))})
+
+    from(s in rows, as: :group)
+    |> group_by([group: s], ^Map.values(groups))
+    |> select([group: s], ^%{groups: groups, value: aggregate(aggregate)})
+  end
+
+  defp group_value(field, unit, dialect) do
+    case {Condition.ref(field), unit} do
+      {ref, nil} ->
+        value(ref, dialect)
+
+      {ref, unit} when unit in [:day, :month, :year] ->
+        length = %{day: 10, month: 7, year: 4}[unit]
+        dynamic(fragment("substr(?, 1, ?)", ^date_text(ref, dialect), ^length))
+    end
+  end
+
+  # A date as ISO text: a value of the data is one already; a column of a
+  # moment is one on SQLite, and made one on PostgreSQL.
+  defp date_text({:column, column, _kind}, :postgres),
+    do:
+      dynamic(
+        [record: r],
+        fragment("to_char(? AT TIME ZONE 'UTC', 'YYYY-MM-DD')", field(r, ^column))
+      )
+
+  defp date_text(ref, dialect), do: value(ref, dialect)
+
+  # What a group's aggregate reads of each record: its id to count, or a
+  # number field's value.
+  defp aggregated(:count, _dialect), do: dynamic([record: r], r.id)
+  defp aggregated({_op, %Field{} = field}, dialect), do: value(Condition.ref(field), dialect)
+
+  defp aggregate(:count), do: dynamic([group: s], count(s.v))
+  defp aggregate({:sum, _field}), do: dynamic([group: s], sum(s.v))
+  defp aggregate({:mean, _field}), do: dynamic([group: s], avg(s.v))
+  defp aggregate({:min, _field}), do: dynamic([group: s], min(s.v))
+  defp aggregate({:max, _field}), do: dynamic([group: s], max(s.v))
+
   @doc false
   # The query's sorts, empty values last, then the collection's own order.
   @spec order(Ecto.Query.t(), [Sort.t()], Collection.t(), dialect()) :: Ecto.Query.t()

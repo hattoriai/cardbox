@@ -109,9 +109,12 @@ LiveView, live updates and a board.
   `or`, sorts, and search, on PostgreSQL and SQLite alike. Days said in
   words ("within the next week") and "me" are read when the query runs,
   so one saved view shows each person their week. → [Queries](guides/queries.md)
-* **Saved views.** A table, a board, a list, a calendar, a chart or a
-  canvas, each with its query and its options, shared or someone's own.
-  A view whose field was deleted still opens. → [Views](guides/views.md)
+* **Saved views, and only the ones you need.** A table (Masu), a board
+  (Narabe), a calendar (Koyomi), a chart (Fude) or a canvas (Hakushi),
+  each with its query and its options, shared or someone's own. Each
+  binding compiles only when your app has its library, and your app adds
+  types of its own (a timeline, a map). A view whose field was deleted
+  still opens. → [Views](guides/views.md)
 * **One way in.** A form, a grid, a board, an import, an email, an agent:
   every write goes through the same checks, your `allow?/3`, a
   compare-and-swap for values someone changed meanwhile, and an event
@@ -131,11 +134,17 @@ mix dev
 
 Open http://localhost:4099. The demo is a studio's work in two
 collections, Projects and Clients, linked both ways, with saved views: a
-table, a board, "My work" and "Due soon". Open a second window as Kenji
+table, a board, "My work", "Due soon", a calendar of due dates, two
+charts, and "Dependencies", a canvas of which project waits on which
+(draw an edge to link two). Open a second window as Kenji
 (the panel at the bottom left): a card moved on one board moves in every
 window.
 
 ![The projects on a Narabe board: a column for each status, cards with their priority, tags, due date and owner](https://raw.githubusercontent.com/hattoriai/cardbox/main/media/board.png)
+
+![The projects' due dates on a Koyomi calendar: a mark on each day with work, toned by status, and the day picked with its project](https://raw.githubusercontent.com/hattoriai/cardbox/main/media/calendar.png)
+
+![The projects' budget by status in a Fude chart: a bar for each status, stacked by priority in each choice's colour, in euros](https://raw.githubusercontent.com/hattoriai/cardbox/main/media/chart.png)
 
 ![The projects on a Hakushi canvas: each blocked project to the right of what blocks it, joined by arrows, laid out along the links](https://raw.githubusercontent.com/hattoriai/cardbox/main/media/canvas.png)
 

@@ -28,6 +28,21 @@ defmodule Cardbox.BindingsTest do
   end
 
   describe "Cardbox.Masu" do
+    test "a grid's \"me\" is its actor, by the actor's id", %{collection: c} do
+      {:ok, view} =
+        Box.save_view(c, %{
+          name: "Mine",
+          query: %{"filter" => %{"field" => "owner", "op" => "eq", "value" => "me"}}
+        })
+
+      grid = Cardbox.Masu.grid(Box, c, view: view, actor: {:scope, "ada"})
+      {source, opts} = grid[:source]
+      state = opts |> source.init([]) |> source.prepare(%Masu.Query{}, [])
+
+      assert source.count(state) == 1
+      assert [%{"title" => "Design"}] = source.rows(state, 0, 10)
+    end
+
     test "a source reads the grid's query inside the view's, in the database", %{collection: c} do
       {:ok, view} =
         Box.save_view(c, %{

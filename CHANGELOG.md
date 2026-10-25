@@ -10,8 +10,14 @@ and Cardbox follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Collections (`use Cardbox`): records of one kind in your database, on
-  PostgreSQL or SQLite, with an owner of your app's (`{type, id}`), made
-  by `mix cardbox.gen.migration`'s tables.
+  PostgreSQL or SQLite, with an owner of your app's (`{type, id}`).
+- Versioned tables (`Cardbox.Migrations`): your migration pins a version
+  (`up(version: 1)`, `down(to: 0)`), the version a database is at is kept
+  in `cardbox_schema`, and `mix cardbox.gen.migration` writes the
+  migration from the version your migrations pin to the latest.
+  `check/1` says whether a database is at the latest.
+- `mix cardbox.install`: your module of Cardbox's and the migration, with
+  Igniter (`mix igniter.install cardbox`) or without.
 - Fields of fourteen types: text, number (and its format), checkbox, date
   (and a time), select, multi-select, status (choices in groups), person,
   URL, email, phone, relation, and who made and changed each record and
@@ -34,6 +40,9 @@ and Cardbox follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `Cardbox.Masu`: a collection as a Masu grid, sorted, filtered and
   searched in the database, edited through Cardbox, with chips for
   choices, people by name and relations by title.
+- `Cardbox.Narabe`: a collection as a Narabe board, a column for each
+  choice, person or tick of the view's field; a card moved to another
+  column takes its value, and its place.
 - `Cardbox.Hakushi`: a collection as a Hakushi canvas, its edges a
   relation's links, its places kept in the view.
 - `Cardbox.Koyomi`: a collection as a Koyomi calendar, each record on the
@@ -46,5 +55,6 @@ and Cardbox follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   counted or aggregated in the database, on PostgreSQL and SQLite.
 - Views of an app's own types (`use Cardbox, views: [...]`), their options
   checked by `c:Cardbox.check_view/3`.
-- `Cardbox.describe/1`: a collection as an agent reads it.
+- `Cardbox.describe/1`: a collection as an agent reads it, and
+  `Cardbox.json_schema/1`: the values of its records as a JSON Schema.
 - The development app (`mix dev`).

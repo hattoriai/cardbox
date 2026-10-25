@@ -1,25 +1,28 @@
 defmodule Mix.Tasks.Cardbox.Gen.Migration do
-  @shortdoc "Writes the migration of Cardbox's tables"
+  @shortdoc "Writes the migration of Cardbox's tables, or of their next version"
 
   @moduledoc """
-  Writes the migration of the five tables where Cardbox keeps collections,
-  their fields, their records, the links of their relations and their
-  views.
+  Writes the migration that takes Cardbox's tables to their latest
+  version (`Cardbox.Migrations`).
 
       $ mix cardbox.gen.migration
       $ mix cardbox.gen.migration --migrations-path priv/other_repo/migrations
 
   Then run `mix ecto.migrate`.
 
-  The tables are the same on PostgreSQL and SQLite. On PostgreSQL the
-  records' values are `jsonb` with a GIN index, which the filters on
-  multi-selects use, the search text has a trigram index (`pg_trgm`), and
-  the position columns compare bytes (`Narabe.Migration`). On SQLite, a
-  search reads the search text column as it is.
+  The first time, the migration makes the tables:
+
+      def up, do: Cardbox.Migrations.up(version: 1)
+      def down, do: Cardbox.Migrations.down(to: 0)
+
+  After an upgrade of Cardbox whose tables have a new version, it writes
+  the migration from the version your migrations pin, read from their
+  files (so it needs no database), to the new one. When they pin the
+  latest already, it writes nothing.
 
   ## Options
 
-    * `--migrations-path` - where to write it, `priv/repo/migrations`
+    * `--migrations-path` - where the migrations are, `priv/repo/migrations`
       unless given.
   """
 
@@ -33,106 +36,119 @@ defmodule Mix.Tasks.Cardbox.Gen.Migration do
   end
 
   @doc false
-  # Writes the migration to `dir`, and returns its path.
-  @spec write(Path.t(), atom(), String.t()) :: Path.t()
+  # Writes the migration to `dir`, and returns its path, or nil when the
+  # migrations there pin the latest version.
+  @spec write(Path.t(), atom(), String.t()) :: Path.t() | nil
   def write(dir, app, timestamp) do
-    existing = Path.wildcard(Path.join(dir, "*_create_cardbox_tables.exs"))
-    if existing != [], do: Mix.raise("a migration of Cardbox's tables exists: #{hd(existing)}")
+    from = pinned_version(dir)
+    to = Cardbox.Migrations.latest_version()
 
-    path = Path.join(dir, "#{timestamp}_create_cardbox_tables.exs")
-    File.mkdir_p!(dir)
-    File.write!(path, migration(app))
-    Mix.shell().info("* creating #{path}")
-    path
+    if from >= to do
+      Mix.shell().info("Cardbox's tables are at version #{to}, the latest. Nothing to write.")
+      nil
+    else
+      {name, source} = migration(app, from, to)
+      path = Path.join(dir, "#{timestamp}_#{name}.exs")
+      File.mkdir_p!(dir)
+      File.write!(path, source)
+      Mix.shell().info("* creating #{path}")
+      path
+    end
   end
 
   @doc false
-  @spec migration(atom()) :: String.t()
-  def migration(app) do
+  # The highest version that `Cardbox.Migrations.up(version: n)` pins in
+  # the migrations of `dir`, 0 when none does.
+  @spec pinned_version(Path.t()) :: non_neg_integer()
+  def pinned_version(dir) do
+    dir
+    |> Path.join("*.exs")
+    |> Path.wildcard()
+    |> Enum.map(&File.read!/1)
+    |> pinned_in()
+  end
+
+  @doc false
+  # The highest version pinned in the sources of migrations.
+  @spec pinned_in([String.t()]) :: non_neg_integer()
+  def pinned_in(sources) do
+    sources |> Enum.flat_map(&versions/1) |> Enum.max(fn -> 0 end)
+  end
+
+  defp versions(source) do
+    case Code.string_to_quoted(source) do
+      {:ok, ast} ->
+        ast
+        |> Macro.prewalker()
+        |> Enum.flat_map(fn
+          {{:., _, [{:__aliases__, _, [:Cardbox, :Migrations]}, :up]}, _, args} ->
+            pinned(args)
+
+          _node ->
+            []
+        end)
+
+      {:error, _error} ->
+        []
+    end
+  end
+
+  defp pinned([opts]) when is_list(opts) do
+    case Keyword.get(opts, :version) do
+      version when is_integer(version) ->
+        [version]
+
+      _other ->
+        Mix.raise("""
+        a migration calls Cardbox.Migrations.up/1 with no version: pin it, as in
+        Cardbox.Migrations.up(version: #{Cardbox.Migrations.latest_version()}), so it runs the same with every Cardbox
+        """)
+    end
+  end
+
+  defp pinned(_args) do
+    Mix.raise("""
+    a migration calls Cardbox.Migrations.up/0: pin the version, as in
+    Cardbox.Migrations.up(version: #{Cardbox.Migrations.latest_version()}), so it runs the same with every Cardbox
+    """)
+  end
+
+  @doc false
+  # The name and the source of the migration from version `from` to `to`.
+  @spec migration(atom(), non_neg_integer(), pos_integer()) :: {String.t(), String.t()}
+  def migration(app, from, to) do
     app_module = app |> to_string() |> Macro.camelize()
+    name = name(from, to)
+
+    source = """
+    defmodule #{app_module}.Repo.Migrations.#{Macro.camelize(name)} do
+      use Ecto.Migration
+
+    #{body(from, to) |> String.replace(~r/^(?=.)/m, "  ")}end
+    """
+
+    {name, source}
+  end
+
+  @doc false
+  # The name of the migration from version `from` to `to`.
+  @spec name(non_neg_integer(), pos_integer()) :: String.t()
+  def name(0, _to), do: "add_cardbox"
+  def name(_from, to), do: "upgrade_cardbox_to_v#{to}"
+
+  @doc false
+  # The body of the migration from version `from` to `to`.
+  @spec body(non_neg_integer(), pos_integer()) :: String.t()
+  def body(from, to) do
+    comment =
+      if from == 0,
+        do: "Cardbox's tables (Cardbox.Migrations), at version #{to}.",
+        else: "Cardbox's tables (Cardbox.Migrations), from version #{from} to #{to}."
 
     """
-    defmodule #{app_module}.Repo.Migrations.CreateCardboxTables do
-      use Ecto.Migration
-      import Narabe.Migration
-
-      # Cardbox's tables: collections, the fields of each, its records (their
-      # values a JSON map by field key) and its saved views.
-      def change do
-        create table(:cardbox_collections) do
-          add :owner_type, :string, size: 64
-          add :owner_id, :string, size: 64
-          add :name, :string, size: 200, null: false
-          add :description, :text
-          add :icon, :string, size: 64
-          timestamps(type: :utc_datetime_usec)
-        end
-
-        create index(:cardbox_collections, [:owner_type, :owner_id])
-
-        create table(:cardbox_fields) do
-          add :collection_id, references(:cardbox_collections, on_delete: :delete_all), null: false
-          add :key, :string, size: 64, null: false
-          add :name, :string, size: 100, null: false
-          add :type, :string, size: 32, null: false
-          add :options, :map, null: false
-          add :description, :text
-          position()
-          timestamps(type: :utc_datetime_usec)
-        end
-
-        create unique_index(:cardbox_fields, [:collection_id, :key])
-        create index(:cardbox_fields, [:collection_id, :position])
-
-        create table(:cardbox_records) do
-          add :collection_id, references(:cardbox_collections, on_delete: :delete_all), null: false
-          add :data, :map, null: false
-          add :search_text, :text
-          position()
-          add :created_by, :string, size: 64
-          add :updated_by, :string, size: 64
-          timestamps(type: :utc_datetime_usec)
-        end
-
-        create index(:cardbox_records, [:collection_id, :position])
-
-        # On PostgreSQL, an index of the values for the filters on lists, and
-        # a trigram index of the search text for searches (pg_trgm, which
-        # every PostgreSQL has, needs to be made once in each database).
-        if repo().__adapter__() == Ecto.Adapters.Postgres do
-          create index(:cardbox_records, [:data], using: "GIN")
-          execute "CREATE EXTENSION IF NOT EXISTS pg_trgm", ""
-          create index(:cardbox_records, ["search_text gin_trgm_ops"], name: :cardbox_records_search_text_index, using: "GIN")
-        end
-
-        # The links of relations: from a record, by a field, to a record. Each
-        # goes with its field and with either record.
-        create table(:cardbox_links) do
-          add :field_id, references(:cardbox_fields, on_delete: :delete_all), null: false
-          add :record_id, references(:cardbox_records, on_delete: :delete_all), null: false
-          add :target_id, references(:cardbox_records, on_delete: :delete_all), null: false
-          add :position, :integer, null: false, default: 0
-          timestamps(type: :utc_datetime_usec, updated_at: false)
-        end
-
-        create unique_index(:cardbox_links, [:field_id, :record_id, :target_id])
-        create index(:cardbox_links, [:target_id, :field_id])
-        create index(:cardbox_links, [:record_id])
-
-        create table(:cardbox_views) do
-          add :collection_id, references(:cardbox_collections, on_delete: :delete_all), null: false
-          add :name, :string, size: 100, null: false
-          add :type, :string, size: 32, null: false
-          add :query, :map, null: false
-          add :options, :map, null: false
-          add :owner, :string, size: 64
-          position()
-          timestamps(type: :utc_datetime_usec)
-        end
-
-        create index(:cardbox_views, [:collection_id, :position])
-      end
-    end
+    # #{comment}
+    def up, do: Cardbox.Migrations.up(version: #{to})
+    def down, do: Cardbox.Migrations.down(to: #{from})
     """
   end
 

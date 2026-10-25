@@ -24,15 +24,31 @@ board, Koyomi's calendar, Fude's charts and Hakushi's canvas.
 You need Elixir 1.18+, Ecto 3.13 on PostgreSQL or SQLite, and Phoenix
 1.7.14 or 1.8.
 
-Add `{:cardbox, "~> 0.1"}` to the deps in `mix.exs`, and the libraries of
-the views you show (`{:masu, "~> 0.7"}` for tables). Then write the
-migration of Cardbox's tables, and run it:
+With [Igniter](https://hexdocs.pm/igniter):
+
+```sh
+mix igniter.install cardbox
+mix ecto.migrate
+```
+
+It adds Cardbox to your deps, writes your module of Cardbox's and the
+migration of its tables, and shows each change before it writes. Or by
+hand: add `{:cardbox, "~> 0.1"}` to the deps in `mix.exs`, then
 
 ```sh
 mix deps.get
-mix cardbox.gen.migration
+mix cardbox.install
 mix ecto.migrate
 ```
+
+A board comes with Cardbox (Narabe). Add the libraries of the other views
+you show: `{:masu, "~> 0.7"}` for tables, `{:koyomi, "~> 0.2.1"}` for
+calendars, `{:fude, "~> 0.7"}` for charts, `{:hakushi, "~> 0.6"}` for
+canvases.
+
+Cardbox's tables are versioned (`Cardbox.Migrations`): after an upgrade
+of Cardbox that changes them, `mix cardbox.gen.migration` writes the
+migration that takes them to the new version.
 
 ## Your first collection
 
@@ -120,8 +136,12 @@ LiveView, live updates and a board.
   compare-and-swap for values someone changed meanwhile, and an event
   that every open view receives.
 * **Built for agents.** `Cardbox.describe/1` gives a model each field, its
-  choices and the filters it takes, and every error says what to write
+  choices and the filters it takes, `Cardbox.json_schema/1` the values a
+  record takes as a JSON Schema, and every error says what to write
   instead. → [Agents](guides/agents.md)
+* **Upgrades you can read.** Cardbox's tables have versions, and your
+  migrations pin them: a migration written once does the same thing with
+  every later Cardbox (`Cardbox.Migrations`).
 * **Tested both ways.** The database and Elixir answer every query the
   same: a property test runs random queries on random records and compares.
 

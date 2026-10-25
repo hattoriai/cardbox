@@ -19,12 +19,17 @@ A view is how people look at a collection: its `type`, its `query`
 A view's query and options are checked when it is saved, and kept with
 fields by key and choices by id.
 
+`get_view/2` reads a view of the collection by its id, whoever's it is: a
+view's `owner` says whose list it is in, not who may read it. When a
+person's own views are private in your app, check the owner of a view
+read by an id from the browser, as you scope the collections they read.
+
 ## The types
 
 | Type | Drawn by | Options |
 | --- | --- | --- |
 | `table` | Masu (`Cardbox.Masu`) | `columns` (in order), `hidden`, `widths` |
-| `board` | Narabe | `group_by` (a select, a status, a person or a checkbox), `hidden_groups`, `card_fields` |
+| `board` | Narabe (`Cardbox.Narabe`) | `group_by` (a select, a status, a person or a checkbox), `hidden_groups`, `card_fields` |
 | `list` | Narabe | `fields` |
 | `calendar` | Koyomi (`Cardbox.Koyomi`) | `date_field` |
 | `chart` | Fude (`Cardbox.Fude`) | `kind`, `x` (and its `unit`), `y`, `color`, `title` |
@@ -47,6 +52,28 @@ Each view is drawn by a binding that compiles only when your app has its
 library: an app with Masu alone has tables, and nothing of Koyomi, Fude
 or Hakushi. A view is data, so an app saves and queries views of any
 type, whatever it draws.
+
+## A board
+
+```heex
+<Cardbox.Narabe.board id="board" collection={@tasks} view={@view} records={@records} people={@people} on_move="move" />
+```
+
+```elixir
+def handle_event("move", params, socket),
+  do: Cardbox.Narabe.handle_move(socket, params, Box, socket.assigns.tasks, socket.assigns.view, actor: user)
+```
+
+A column for each choice of a select or a status, in their order and
+colours; each person of `people` (and each one a record names) for a
+person; Yes and No for a checkbox; and "No status" last when some records
+have none. `hidden_groups` leaves columns out. A card shows its title and
+the values of `card_fields`, unless your `card` slot draws it.
+
+A card moved to another column takes the column's value, and its place
+after or before the card it was dropped by; several cards move together.
+The records are the view's (`list/3`), and Narabe comes with Cardbox, so
+every app has boards.
 
 ## A calendar
 

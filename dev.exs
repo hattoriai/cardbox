@@ -437,8 +437,6 @@ defmodule CardboxDev.CollectionLive do
   use Phoenix.LiveView
 
   import CardboxDev.Layouts, only: [app: 1, icon: 1, qs: 2]
-  import Masu.Components
-  import Narabe.Components
 
   alias Cardbox.{Collection, Field}
   alias CardboxDev.Cardbox, as: Box
@@ -460,8 +458,7 @@ defmodule CardboxDev.CollectionLive do
 
   defp load(%{assigns: %{view: %{type: "board"} = view, collection: collection, me: me}} = socket) do
     {:ok, records} = Box.list(collection, view, me: me.id)
-    field = Collection.field(collection, view.options["group_by"])
-    assign(socket, records: records, count: length(records), group_field: field)
+    assign(socket, records: records, count: length(records))
   end
 
   defp load(%{assigns: %{view: %{type: "canvas"} = view, collection: collection, me: me}} = socket) do
@@ -534,14 +531,7 @@ defmodule CardboxDev.CollectionLive do
         <% end %>
         <%= if @view && @view.type == "board" do %>
           <div class="board-wrap">
-            <.board
-              id="board"
-              label={@view.name}
-              columns={columns(@group_field, @records)}
-              cards={@records}
-              card_column={&card_column(&1, @group_field)}
-              on_move="move"
-            >
+            <Cardbox.Narabe.board id="board" collection={@collection} view={@view} records={@records} people={CardboxDev.People.all()} on_move="move">
               <:column :let={column}>
                 <div class="colhead">
                   <span class="cardbox-choice" data-color={column.color}>{column.name}</span>
@@ -550,7 +540,7 @@ defmodule CardboxDev.CollectionLive do
               <:card :let={record}>
                 <.card record={record} collection={@collection} />
               </:card>
-            </.board>
+            </Cardbox.Narabe.board>
           </div>
         <% end %>
         <%= if @view && @view.type == "table" do %>
@@ -560,7 +550,7 @@ defmodule CardboxDev.CollectionLive do
             view={@view}
             actor={@me.id}
             people={CardboxDev.People.all()}
-            id={"grid-#{@view && @view.id}"}
+            id={"grid-#{@view.id}"}
             searchable
             height="100%"
           />
@@ -598,13 +588,6 @@ defmodule CardboxDev.CollectionLive do
   end
 
   defp choice(collection, key, id), do: Cardbox.Choice.find(Field.choices(Collection.field(collection, key)), id)
-
-  defp columns(field, records) do
-    columns = for c <- Field.choices(field), do: %{id: c["id"], name: c["name"], color: c["color"]}
-    if Enum.any?(records, &(card_column(&1, field) == "none")), do: columns ++ [%{id: "none", name: "No #{String.downcase(field.name)}", color: "gray"}], else: columns
-  end
-
-  defp card_column(record, field), do: record.data[field.key] || "none"
 
   # The view's filter, said in words: a chip for each condition.
   defp chips(_collection, nil), do: []
@@ -652,28 +635,9 @@ defmodule CardboxDev.CollectionLive do
   end
 
   def handle_event("move", params, socket) do
-    %{collection: collection, group_field: field, me: me} = socket.assigns
-
-    result =
-      # Cards are records (integer ids), columns are choices (text ids).
-      with {:ok, move} <- Narabe.Move.parse(params, :string) do
-        int = &(&1 && String.to_integer(&1))
-
-        Enum.reduce_while(move.ids, :ok, fn id, :ok ->
-          id = int.(id)
-          value = if move.parent in [nil, "none"], do: nil, else: move.parent
-          place = if move.after, do: [after: int.(move.after)], else: if(move.before, do: [before: int.(move.before)], else: [to: :last])
-
-          with {:ok, _} <- Box.update(collection, id, %{field.key => value}, actor: me.id),
-               {:ok, _} <- Box.move(collection, id, [{:actor, me.id} | place]) do
-            {:cont, :ok}
-          else
-            {:error, error} -> {:halt, {:error, error.message}}
-          end
-        end)
-      end
-
-    {:reply, Narabe.Live.reply(result), load(socket)}
+    %{collection: collection, view: view, me: me} = socket.assigns
+    {:reply, reply, socket} = Cardbox.Narabe.handle_move(socket, params, Box, collection, view, actor: me.id)
+    {:reply, reply, load(socket)}
   end
 
   @impl true
@@ -761,7 +725,8 @@ Task.async(fn ->
       name: CardboxDev.Supervisor
     )
 
-  [{migration, _}] = Code.compile_string(Mix.Tasks.Cardbox.Gen.Migration.migration(:cardbox_dev))
+  {_name, source} = Mix.Tasks.Cardbox.Gen.Migration.migration(:cardbox_dev, 0, Cardbox.Migrations.latest_version())
+  [{migration, _}] = Code.compile_string(source)
   Ecto.Migrator.up(CardboxDev.Repo, 1, migration, log: false)
   :ok = CardboxDev.Seeds.run()
 

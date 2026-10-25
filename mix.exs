@@ -63,6 +63,9 @@ defmodule Cardbox.MixProject do
       {:hakushi, "~> 0.6", optional: true},
       {:koyomi, "~> 0.2.1", optional: true},
       {:fude, "~> 0.7", optional: true},
+      # `mix igniter.install cardbox`: the installer edits the app with
+      # Igniter when the app has it.
+      {:igniter, "~> 0.6", optional: true},
       # The development app (dev.exs).
       {:bandit, "~> 1.5", only: :dev},
       {:stream_data, "~> 1.1", only: :test}
@@ -108,8 +111,14 @@ defmodule Cardbox.MixProject do
         Types: [Cardbox.Type, Cardbox.Choice],
         Queries: [Cardbox.Query, Cardbox.Filter, Cardbox.Sort],
         Changes: [Cardbox.Event, Cardbox.Error],
-        "Drawn by": [Cardbox.Masu, Cardbox.Koyomi, Cardbox.Fude, Cardbox.Hakushi],
-        Databases: [Cardbox.SQL]
+        "Drawn by": [
+          Cardbox.Masu,
+          Cardbox.Narabe,
+          Cardbox.Koyomi,
+          Cardbox.Fude,
+          Cardbox.Hakushi
+        ],
+        Databases: [Cardbox.Migrations, Cardbox.SQL]
       ]
     ]
   end

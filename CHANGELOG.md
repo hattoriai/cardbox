@@ -5,6 +5,14 @@ All notable changes to Cardbox are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and Cardbox follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `Cardbox.Masu`: a grid's `"me"` is its actor by `c:Cardbox.actor_id/1`,
+  as everywhere else. An actor such as a scope struct no longer crashes
+  the grid when its view filters on `"me"`.
+
 ## [0.1.0] - 2026-10-25
 
 ### Added

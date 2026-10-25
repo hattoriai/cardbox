@@ -206,7 +206,11 @@ if Code.ensure_loaded?(Masu.Source) do
         label: if(view, do: "#{collection.name}: #{view.name}", else: collection.name),
         source:
           {__MODULE__.Source,
-           mod: mod, collection: collection, view: view, people: people, opts: read_opts(opts)},
+           mod: mod,
+           collection: collection,
+           view: view,
+           people: people,
+           opts: read_opts(mod, opts)},
         columns: columns(collection, view, people),
         on_update: &update(mod, collection, &1, write_opts),
         on_create: &create(mod, collection, &1, write_opts),
@@ -218,10 +222,11 @@ if Code.ensure_loaded?(Masu.Source) do
       ]
     end
 
-    defp read_opts(opts) do
+    # "me" in the view's query is the actor, by its id (`c:Cardbox.actor_id/1`).
+    defp read_opts(mod, opts) do
       opts
       |> Keyword.take([:time_zone, :now])
-      |> Keyword.put(:me, opts[:actor])
+      |> Keyword.put(:me, mod.actor_id(opts[:actor]))
     end
 
     @doc """

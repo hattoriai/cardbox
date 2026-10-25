@@ -25,7 +25,8 @@ if Code.ensure_loaded?(Koyomi.Live) do
     and shown on hover, has the records' titles.
 
     When records change (`Cardbox.Event`), `Koyomi.Live.refresh_days/2`
-    asks the calendar for its days again.
+    asks the calendar for its days again (Koyomi 0.2.1 and later, which
+    Cardbox requires: before it, a refresh emptied the calendar).
     """
 
     use Phoenix.Component
@@ -45,7 +46,7 @@ if Code.ensure_loaded?(Koyomi.Live) do
 
     attr(:months, :integer, default: 1)
     attr(:label, :string, default: nil)
-    attr(:rest, :global, include: ~w(locale first_day week_numbers holidays class))
+    attr(:rest, :global, include: ~w(value locale first_day week_numbers holidays class))
 
     @doc "A calendar of a view's records, on the days of its date field."
     def calendar(assigns) do

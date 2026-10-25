@@ -350,6 +350,41 @@ defmodule Cardbox do
     |> put_if("description", collection.description)
   end
 
+  @doc """
+  The [JSON Schema](https://json-schema.org) of the values a collection's
+  records take, by field key: what `insert/3` and `update/4` take, in the
+  forms they keep. For a model's structured output, an agent's tool, or a
+  form of your app that checks values before they are sent.
+
+      Cardbox.json_schema(tasks)
+      #=> %{
+      #     "$schema" => "https://json-schema.org/draft/2020-12/schema",
+      #     "title" => "Tasks",
+      #     "type" => "object",
+      #     "properties" => %{
+      #       "title" => %{"title" => "Title", "anyOf" => [%{"type" => "string", ...}, %{"type" => "null"}]},
+      #       "status" => %{
+      #         "title" => "Status",
+      #         "anyOf" => [
+      #           %{"type" => "string", "oneOf" => [%{"const" => "not_started", "title" => "Not started"}, ...]},
+      #           %{"type" => "null"}
+      #         ]
+      #       },
+      #       ...
+      #     },
+      #     "additionalProperties" => false
+      #   }
+
+  Each value may be `null`, which empties the field. A choice is its id,
+  with its name as its title; a day is `"2026-10-25"` (`format: date`), a
+  moment ISO 8601 (`format: date-time`); a relation a list of record ids.
+  The four read-only types are not in it. Cardbox takes more than the
+  schema says (a choice's name, a number as text), and checks every value
+  as it writes it, whatever a schema let through.
+  """
+  @spec json_schema(Collection.t()) :: map()
+  def json_schema(%Collection{} = collection), do: Cardbox.JSONSchema.schema(collection)
+
   defp put_if(map, _key, nil), do: Map.reject(map, fn {_k, v} -> is_nil(v) end)
 
   defp put_if(map, key, value),

@@ -25,6 +25,25 @@ Cardbox.describe(tasks)
 Give it to a model as the description of a tool, with the query format of
 [Queries](queries.md).
 
+## The values, as a JSON Schema
+
+`Cardbox.json_schema/1` says what a record's values are, by field key, as
+[JSON Schema](https://json-schema.org): a choice as one of its ids (with
+its name as its title), a day as a `date`, a relation as record ids, and
+`null` for each, which empties it. It is the `input_schema` of a tool that
+adds or changes records, or the schema of a model's structured output:
+
+```elixir
+%{
+  name: "add_task",
+  description: "Adds a task.",
+  input_schema: Cardbox.json_schema(tasks)
+}
+```
+
+Cardbox takes more than the schema says (a choice's name, a number as
+text), and checks every value as it writes it.
+
 ## Tools
 
 Three tools cover most of what an agent does: one that lists records,

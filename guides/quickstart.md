@@ -17,17 +17,28 @@ Narabe (boards and the order of records) comes with Cardbox. Add each
 view's hook and style sheet as its README says (`import { Masu } from "masu"`,
 `import { Narabe } from "narabe"`).
 
-Write the migration of Cardbox's tables, and run it:
+Write your module and the migration of Cardbox's tables, and run it:
 
 ```sh
 mix deps.get
-mix cardbox.gen.migration
+mix cardbox.install
 mix ecto.migrate
 ```
 
-It makes five tables, the same on PostgreSQL and SQLite:
+(With Igniter, `mix igniter.install cardbox` does the first two, and
+shows each change before it writes.) The migration pins a version of
+Cardbox's tables:
+
+```elixir
+def up, do: Cardbox.Migrations.up(version: 1)
+def down, do: Cardbox.Migrations.down(to: 0)
+```
+
+Version 1 makes five tables, the same on PostgreSQL and SQLite:
 `cardbox_collections`, `cardbox_fields`, `cardbox_records`,
-`cardbox_links` (the links of relations) and `cardbox_views`.
+`cardbox_links` (the links of relations) and `cardbox_views`. When a
+later Cardbox changes them, `mix cardbox.gen.migration` writes the
+migration to its version, from the one your migrations pin.
 
 ## Your module
 
@@ -120,28 +131,25 @@ person saw, and an event.
 ## A board
 
 A board is Narabe's, with a column for each choice of the view's
-`group_by`:
+`group_by` (`Cardbox.Narabe`):
 
 ```heex
-<.board id="board" columns={@columns} cards={@records} card_column={&(&1.data["status"] || "none")} on_move="move">
+<Cardbox.Narabe.board id="board" collection={@tasks} view={@board} records={@records} on_move="move">
   <:card :let={record}>{record.data["title"]}</:card>
-</.board>
+</Cardbox.Narabe.board>
 ```
 
 ```elixir
 def handle_event("move", params, socket) do
-  {:ok, move} = Narabe.Move.parse(params, :string)
-  [id] = Enum.map(move.ids, &String.to_integer/1)
-  place = if move.after, do: [after: String.to_integer(move.after)], else: [to: :last]
-
-  result =
-    with {:ok, _} <- Box.update(socket.assigns.tasks, id, %{"status" => move.parent}, actor: user),
-         {:ok, _} <- Box.move(socket.assigns.tasks, id, [{:actor, user} | place]),
-         do: :ok
-
-  {:reply, Narabe.Live.reply(result), load(socket)}
+  %{tasks: tasks, board: board} = socket.assigns
+  {:reply, reply, socket} = Cardbox.Narabe.handle_move(socket, params, Box, tasks, board, actor: user)
+  {:reply, reply, load(socket)}
 end
 ```
+
+A card moved to another column takes its value; a move within a column
+changes only its place. A person who may not change the record sees the
+card go back, with the reason.
 
 The development app (`mix dev`, `dev.exs`) has the whole of it: a table,
 a board, a canvas, and live updates between windows.

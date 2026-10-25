@@ -142,4 +142,133 @@ defmodule Cardbox.BindingsTest do
                )
     end
   end
+
+  describe "Cardbox.Narabe" do
+    import Phoenix.LiveViewTest, only: [rendered_to_string: 1]
+    import Phoenix.Component, only: [sigil_H: 2]
+
+    setup %{collection: c} do
+      {:ok, view} =
+        Box.save_view(c, %{
+          name: "Board",
+          type: "board",
+          options: %{group_by: "Status", card_fields: ["Owner", "Tags"]}
+        })
+
+      %{view: view}
+    end
+
+    defp move_params(ids, parent, side \\ nil),
+      do:
+        Map.merge(
+          %{"v" => 1, "ids" => Enum.map(ids, &to_string/1), "parent" => parent},
+          side || %{}
+        )
+
+    test "a column for each choice, and one for the records with none", %{collection: c} do
+      field = Cardbox.Collection.field(c, "Status")
+      {:ok, records} = Box.list(c, %{})
+
+      assert Enum.map(Cardbox.Narabe.columns(field, records), & &1.id) ==
+               ~w(not_started in_progress done)
+
+      none = insert!(c, %{"Title" => "Loose"})
+      assert Cardbox.Narabe.column_of(none, field) == "none"
+
+      assert List.last(Cardbox.Narabe.columns(field, [none | records])) ==
+               %{id: "none", name: "No status", color: "gray"}
+
+      people = [%{id: "ada", name: "Ada Lovelace"}]
+      owner = Cardbox.Collection.field(c, "Owner")
+
+      assert Cardbox.Narabe.columns(owner, records, people) ==
+               [%{id: "ada", name: "Ada Lovelace", color: "gray"}] ++
+                 [%{id: "none", name: "No owner", color: "gray"}]
+
+      done = Cardbox.Collection.field(c, "Done")
+      assert Enum.map(Cardbox.Narabe.columns(done, records), & &1.id) == ~w(yes no)
+    end
+
+    test "a card moved to another column takes its value and its place", %{
+      collection: c,
+      view: view,
+      a: a,
+      b: b
+    } do
+      todo = insert!(c, %{"Title" => "Write", "Status" => "Not started"})
+
+      # Build goes to Done, before Design.
+      params = move_params([b.id], "done", %{"before" => to_string(a.id)})
+      assert Cardbox.Narabe.move(Box, c, view, params, actor: "ada") == :ok
+      assert Box.get(c, b.id).data["status"] == "done"
+      assert Box.get(c, b.id).updated_by == "ada"
+      assert titles(c, view) == ["Build", "Design", "Write"]
+
+      # Write goes to the column of none: no status.
+      assert Cardbox.Narabe.move(Box, c, view, move_params([todo.id], "none")) == :ok
+      refute Map.has_key?(Box.get(c, todo.id).data, "status")
+
+      # Within a column, only its place changes: no update.
+      Box.subscribe(c)
+      params = move_params([a.id], "done", %{"before" => to_string(b.id)})
+      assert Cardbox.Narabe.move(Box, c, view, params) == :ok
+      assert_received {:cardbox, %Cardbox.Event{type: :record_moved}}
+      refute_received {:cardbox, %Cardbox.Event{type: :record_updated}}
+      assert titles(c, view) == ["Design", "Build", "Write"]
+    end
+
+    test "a checkbox's columns tick and untick", %{collection: c, a: a} do
+      {:ok, view} =
+        Box.save_view(c, %{name: "Done?", type: "board", options: %{group_by: "Done"}})
+
+      assert Cardbox.Narabe.move(Box, c, view, move_params([a.id], "yes")) == :ok
+      assert Box.get(c, a.id).data["done"] == true
+      assert Cardbox.Narabe.move(Box, c, view, move_params([a.id], "no")) == :ok
+      refute Map.has_key?(Box.get(c, a.id).data, "done")
+    end
+
+    test "a move that is no move, of columns, or of a record gone is refused", %{
+      collection: c,
+      view: view
+    } do
+      assert {:error, :invalid_move} = Cardbox.Narabe.move(Box, c, view, %{"v" => 1})
+
+      assert {:error, :invalid_move} =
+               Cardbox.Narabe.move(Box, c, view, move_params(["x"], "done"))
+
+      assert {:error, "The columns are" <> _} =
+               Cardbox.Narabe.move(
+                 Box,
+                 c,
+                 view,
+                 Map.put(move_params(["done"], nil), "columns", true)
+               )
+
+      assert {:error, "That record is gone."} =
+               Cardbox.Narabe.move(Box, c, view, move_params([999_999], "done"))
+
+      assert %{error: "refused", message: "That record is gone."} =
+               Narabe.Live.reply(
+                 Cardbox.Narabe.move(Box, c, view, move_params([999_999], "done"))
+               )
+    end
+
+    test "the board draws its columns and cards", %{collection: c, view: view} do
+      {:ok, records} = Box.list(c, view)
+      assigns = %{c: c, view: view, records: records}
+
+      html =
+        rendered_to_string(~H"""
+        <Cardbox.Narabe.board id="board" collection={@c} view={@view} records={@records}
+          people={[%{id: "ada", name: "Ada Lovelace"}]} on_move="move" />
+        """)
+
+      assert html =~ ~s(phx-hook="Narabe")
+      assert html =~ "Not started"
+      assert html =~ "In progress"
+      assert html =~ "<strong>Design</strong>"
+      assert html =~ "Ada Lovelace"
+      assert html =~ "UI"
+    end
+  end
 end

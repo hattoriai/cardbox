@@ -35,7 +35,9 @@ repo =
 Application.put_env(:cardbox, :test_repo, repo)
 
 # The tables, from the migration mix cardbox.gen.migration writes.
-[{migration, _}] = Code.compile_string(Mix.Tasks.Cardbox.Gen.Migration.migration(:cardbox_test))
+latest = Cardbox.Migrations.latest_version()
+{_name, source} = Mix.Tasks.Cardbox.Gen.Migration.migration(:cardbox_test, 0, latest)
+[{migration, _}] = Code.compile_string(source)
 Ecto.Migrator.up(repo, 1, migration, log: false)
 
 ExUnit.start()

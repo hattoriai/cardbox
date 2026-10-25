@@ -6,9 +6,17 @@ defmodule Cardbox.RecordsTest do
       collection = tasks!()
 
       {:ok, record} =
-        Box.insert(collection, %{"Title" => "Ship it", "status" => "In progress", "Points" => "5", "Done" => "on", "Due" => ~D[2026-11-02], "Tags" => ["bug", "UI"], "Owner" => 7},
-          actor: %{id: 42}
-        )
+        Box.insert(
+          collection,
+          %{
+            "Title" => "Ship it",
+            "status" => "In progress",
+            "Points" => "5",
+            "Done" => "on",
+            "Due" => ~D[2026-11-02],
+            "Tags" => ["bug", "UI"],
+            "Owner" => 7
+          }, actor: %{id: 42})
 
       assert record.data == %{
                "title" => "Ship it",
@@ -35,10 +43,18 @@ defmodule Cardbox.RecordsTest do
       collection = tasks!()
 
       assert {:error, %Error{reason: :invalid, errors: errors, message: message}} =
-               Box.insert(collection, %{"Points" => "many", "Priority" => "Critical", "Colour" => "red", "Link" => "nope"})
+               Box.insert(collection, %{
+                 "Points" => "many",
+                 "Priority" => "Critical",
+                 "Colour" => "red",
+                 "Link" => "nope"
+               })
 
       assert {"points", "is a number, got: \"many\""} in errors
-      assert {"priority", "is one of the choices (\"Low\", \"Medium\", \"High\"), got: \"Critical\""} in errors
+
+      assert {"priority",
+              "is one of the choices (\"Low\", \"Medium\", \"High\"), got: \"Critical\""} in errors
+
       assert {"Colour", "is not a field of the collection"} in errors
       assert message =~ "Points is a number"
       assert Box.count(collection) == {:ok, 0}
@@ -68,7 +84,10 @@ defmodule Cardbox.RecordsTest do
     test "changes the values given, and nil empties one" do
       collection = tasks!()
       record = insert!(collection, %{"Title" => "Draft", "Points" => 3})
-      {:ok, record} = Box.update(collection, record, %{"Points" => nil, "Status" => "Done"}, actor: "agent:1")
+
+      {:ok, record} =
+        Box.update(collection, record, %{"Points" => nil, "Status" => "Done"}, actor: "agent:1")
+
       assert record.data == %{"title" => "Draft", "status" => "done"}
       assert record.updated_by == "agent:1"
     end
@@ -78,11 +97,22 @@ defmodule Cardbox.RecordsTest do
       record = insert!(collection, %{"Title" => "Draft", "Status" => "Not started"})
       {:ok, _} = Box.update(collection, record.id, %{"Status" => "In progress"})
 
-      assert {:error, %Error{reason: :conflict, errors: [{"status", "changed meanwhile"}], current: current}} =
-               Box.update(collection, record.id, %{"Status" => "Done"}, expect: %{"Status" => "Not started"})
+      assert {:error,
+              %Error{
+                reason: :conflict,
+                errors: [{"status", "changed meanwhile"}],
+                current: current
+              }} =
+               Box.update(collection, record.id, %{"Status" => "Done"},
+                 expect: %{"Status" => "Not started"}
+               )
 
       assert current.data["status"] == "in_progress"
-      assert {:ok, _} = Box.update(collection, record.id, %{"Status" => "Done"}, expect: %{"Status" => "In progress"})
+
+      assert {:ok, _} =
+               Box.update(collection, record.id, %{"Status" => "Done"},
+                 expect: %{"Status" => "In progress"}
+               )
     end
 
     test "a record of another collection is not found" do
@@ -95,15 +125,21 @@ defmodule Cardbox.RecordsTest do
 
   describe "relations" do
     test "link to records of their collection, and lose the link when the record goes" do
-      {:ok, people} = Box.create_collection(%{name: "People", fields: [%{name: "Name", type: "text"}]})
+      {:ok, people} =
+        Box.create_collection(%{name: "People", fields: [%{name: "Name", type: "text"}]})
+
       ada = insert!(people, %{"Name" => "Ada"})
       grace = insert!(people, %{"Name" => "Grace"})
-      collection = tasks!([%{name: "Assignees", type: "relation", options: %{collection_id: people.id}}])
+
+      collection =
+        tasks!([%{name: "Assignees", type: "relation", options: %{collection_id: people.id}}])
 
       task = insert!(collection, %{"Assignees" => [ada.id, "#{grace.id}"]})
       assert task.data["assignees"] == [ada.id, grace.id]
 
-      assert {:error, %Error{message: message}} = Box.insert(collection, %{"Assignees" => [task.id]})
+      assert {:error, %Error{message: message}} =
+               Box.insert(collection, %{"Assignees" => [task.id]})
+
       assert message =~ "links to records that are not in its collection: #{task.id}"
 
       {:ok, _} = Box.delete(people, ada)
@@ -145,7 +181,14 @@ defmodule Cardbox.RecordsTest do
       refute_receive {:cardbox, %Event{type: :record_updated}}, 50
 
       {:ok, _} = Box.add_field(collection, %{name: "Notes", type: "text"})
-      assert_receive {:cardbox, %Event{type: :field_added, field: %{key: "notes"}, collection: %{fields: fields}}}
+
+      assert_receive {:cardbox,
+                      %Event{
+                        type: :field_added,
+                        field: %{key: "notes"},
+                        collection: %{fields: fields}
+                      }}
+
       assert Enum.any?(fields, &(&1.key == "notes"))
     end
   end
@@ -162,15 +205,21 @@ defmodule Cardbox.RecordsTest do
     end
 
     test "is asked before each write" do
-      {:ok, collection} = Strict.create_collection(%{name: "Locked", fields: [%{name: "Title", type: "text"}]}, actor: %{id: 1, role: :viewer})
+      {:ok, collection} =
+        Strict.create_collection(%{name: "Locked", fields: [%{name: "Title", type: "text"}]},
+          actor: %{id: 1, role: :viewer}
+        )
 
       assert {:error, %Error{reason: :unauthorized, message: "not allowed to insert"}} =
                Strict.insert(collection, %{"Title" => "x"}, actor: %{id: 1, role: :viewer})
 
       assert {:error, %Error{message: "not allowed to change fields"}} =
-               Strict.add_field(collection, %{name: "B", type: "text"}, actor: %{id: 1, role: :viewer})
+               Strict.add_field(collection, %{name: "B", type: "text"},
+                 actor: %{id: 1, role: :viewer}
+               )
 
-      assert {:ok, _} = Strict.insert(collection, %{"Title" => "x"}, actor: %{id: 2, role: :editor})
+      assert {:ok, _} =
+               Strict.insert(collection, %{"Title" => "x"}, actor: %{id: 2, role: :editor})
     end
   end
 end

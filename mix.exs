@@ -1,7 +1,7 @@
 defmodule Cardbox.MixProject do
   use Mix.Project
 
-  @version "0.1.0-dev"
+  @version "0.1.0"
   @source_url "https://github.com/hattoriai/cardbox"
 
   def project do
@@ -43,8 +43,8 @@ defmodule Cardbox.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
-      # The collections, their fields, records and views: rows of four
-      # tables in the app's database, on PostgreSQL or SQLite. The tests run
+      # The collections, their fields, records, links and views: rows of
+      # five tables in the app's database, on PostgreSQL or SQLite. The tests run
       # on SQLite, and on PostgreSQL with DATABASE_URL.
       {:ecto, "~> 3.13"},
       {:ecto_sql, "~> 3.13"},
@@ -105,7 +105,8 @@ defmodule Cardbox.MixProject do
         Collections: [Cardbox.Collection, Cardbox.Field, Cardbox.Record, Cardbox.View],
         Types: [Cardbox.Type, Cardbox.Choice],
         Queries: [Cardbox.Query, Cardbox.Filter, Cardbox.Sort],
-        Changes: [Cardbox.Event],
+        Changes: [Cardbox.Event, Cardbox.Error],
+        "Drawn by": [Cardbox.Masu, Cardbox.Hakushi],
         Databases: [Cardbox.SQL]
       ]
     ]

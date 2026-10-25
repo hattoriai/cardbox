@@ -54,5 +54,6 @@ defmodule Cardbox.Search do
   @doc false
   # The words of a search, each to be found.
   @spec words(String.t()) :: [String.t()]
-  def words(search), do: search |> normalize() |> String.split(~r/\s+/u, trim: true) |> Enum.uniq()
+  def words(search),
+    do: search |> normalize() |> String.split(~r/\s+/u, trim: true) |> Enum.uniq()
 end

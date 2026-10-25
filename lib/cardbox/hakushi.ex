@@ -27,14 +27,18 @@ if Code.ensure_loaded?(Hakushi.Graph) do
 
     alias Cardbox.{Collection, Record, View}
 
-    attr :cardbox, :atom, required: true, doc: "your Cardbox module"
-    attr :collection, Collection, required: true
-    attr :view, View, required: true
-    attr :records, :list, required: true, doc: "the records to show (`list/3` of the view)"
-    attr :actor, :any, default: nil
-    attr :id, :string, default: nil
-    attr :rest, :global, include: ~w(class background grid snap minimap controls fit wheel readonly)
-    slot :record, doc: "a record's node, given the record as `:let`; its title by default"
+    attr(:cardbox, :atom, required: true, doc: "your Cardbox module")
+    attr(:collection, Collection, required: true)
+    attr(:view, View, required: true)
+    attr(:records, :list, required: true, doc: "the records to show (`list/3` of the view)")
+    attr(:actor, :any, default: nil)
+    attr(:id, :string, default: nil)
+
+    attr(:rest, :global,
+      include: ~w(class background grid snap minimap controls fit wheel readonly)
+    )
+
+    slot(:record, doc: "a record's node, given the record as `:let`; its title by default")
 
     @doc "A collection as a canvas of its records, joined by a relation's links."
     def canvas(assigns) do
@@ -102,7 +106,11 @@ if Code.ensure_loaded?(Hakushi.Graph) do
             for record <- records,
                 linked <- List.wrap(record.data[field.key]),
                 MapSet.member?(shown, linked) do
-              %{id: edge_id(field.key, linked, record.id), source: to_string(linked), target: to_string(record.id)}
+              %{
+                id: edge_id(field.key, linked, record.id),
+                source: to_string(linked),
+                target: to_string(record.id)
+              }
             end
         end
 
@@ -116,46 +124,58 @@ if Code.ensure_loaded?(Hakushi.Graph) do
     drawn and deleted as links of its relation. The `on_change` of a canvas
     of your own (`Hakushi.Components.canvas/1`).
     """
-    @spec change(module(), Collection.t(), View.t(), Hakushi.Change.t(), map(), keyword()) :: :ok | {:error, String.t()}
+    @spec change(module(), Collection.t(), View.t(), Hakushi.Change.t(), map(), keyword()) ::
+            :ok | {:error, String.t()}
     def change(mod, collection, view, %Hakushi.Change{op: op} = change, _context, opts) do
       field = view.options["edges"] && Collection.field(collection, view.options["edges"])
 
-      case op do
-        :move ->
+      cond do
+        op == :move ->
           place(mod, collection, view, change.nodes, opts)
 
-        :connect when field != nil ->
-          Enum.reduce_while(change.edges, :ok, fn edge, :ok -> link(mod, collection, field, edge.source, edge.target, :add, opts) end)
-
-        :reconnect when field != nil ->
-          Enum.reduce_while(change.edges, :ok, fn %{id: id} = edge, :ok ->
-            {source, target} = ends(id)
-
-            with {:cont, :ok} <- link(mod, collection, field, source, target, :remove, opts) do
-              link(mod, collection, field, Map.get(edge, :source, source), Map.get(edge, :target, target), :add, opts)
-            end
-          end)
-
-        :delete when change.nodes != [] ->
+        op == :delete and change.nodes != [] ->
           {:error, "Records are deleted in the table, not on the canvas."}
 
-        :delete when field != nil ->
-          Enum.reduce_while(change.edges, :ok, fn id, :ok ->
-            {source, target} = ends(id)
-            link(mod, collection, field, source, target, :remove, opts)
-          end)
-
-        :add ->
+        op == :add ->
           {:error, "Add records in the table, then place them here."}
 
-        _other ->
+        field != nil ->
+          links(mod, collection, field, links_of(change), opts)
+
+        true ->
           :ok
       end
-      |> case do
-        {:cont, :ok} -> :ok
-        {:halt, error} -> error
-        other -> other
-      end
+    end
+
+    # The links a change of edges adds and removes, in order.
+    defp links_of(%Hakushi.Change{op: :connect, edges: edges}),
+      do: for(edge <- edges, do: {edge.source, edge.target, :add})
+
+    defp links_of(%Hakushi.Change{op: :reconnect, edges: edges}) do
+      Enum.flat_map(edges, fn %{id: id} = edge ->
+        {source, target} = ends(id)
+
+        [
+          {source, target, :remove},
+          {Map.get(edge, :source, source), Map.get(edge, :target, target), :add}
+        ]
+      end)
+    end
+
+    defp links_of(%Hakushi.Change{op: :delete, edges: edges}) do
+      for id <- edges, {source, target} = ends(id), do: {source, target, :remove}
+    end
+
+    defp links_of(_change), do: []
+
+    # Each link written, until one fails.
+    defp links(mod, collection, field, links, opts) do
+      Enum.reduce_while(links, :ok, fn {source, target, action}, :ok ->
+        case link(mod, collection, field, source, target, action, opts) do
+          :ok -> {:cont, :ok}
+          error -> {:halt, error}
+        end
+      end)
     end
 
     defp ends(edge_id) do
@@ -173,7 +193,12 @@ if Code.ensure_loaded?(Hakushi.Graph) do
           Map.put(layout, to_string(node.id), %{"x" => round(node.x), "y" => round(node.y)})
         end)
 
-      case mod.update_view(collection, fresh, %{options: Map.put(fresh.options, "layout", layout)}, actor: opts[:actor]) do
+      case mod.update_view(
+             collection,
+             fresh,
+             %{options: Map.put(fresh.options, "layout", layout)},
+             actor: opts[:actor]
+           ) do
         {:ok, _view} -> :ok
         {:error, error} -> {:error, error.message}
       end
@@ -184,16 +209,18 @@ if Code.ensure_loaded?(Hakushi.Graph) do
     defp link(mod, collection, field, source, target, action, opts) do
       {source, target} = {to_int(source), to_int(target)}
 
-      with %Record{} = record <- mod.get(collection, target) do
-        ids = List.wrap(record.data[field.key])
-        ids = if action == :add, do: Enum.uniq(ids ++ [source]), else: List.delete(ids, source)
+      case mod.get(collection, target) do
+        %Record{} = record ->
+          ids = List.wrap(record.data[field.key])
+          ids = if action == :add, do: Enum.uniq(ids ++ [source]), else: List.delete(ids, source)
 
-        case mod.update(collection, record, %{field.key => ids}, actor: opts[:actor]) do
-          {:ok, _record} -> {:cont, :ok}
-          {:error, error} -> {:halt, {:error, error.message}}
-        end
-      else
-        nil -> {:halt, {:error, "That record is gone."}}
+          case mod.update(collection, record, %{field.key => ids}, actor: opts[:actor]) do
+            {:ok, _record} -> :ok
+            {:error, error} -> {:error, error.message}
+          end
+
+        nil ->
+          {:error, "That record is gone."}
       end
     end
 

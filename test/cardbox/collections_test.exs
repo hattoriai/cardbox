@@ -7,19 +7,33 @@ defmodule Cardbox.CollectionsTest do
 
       assert collection.name == "Tasks"
       assert {collection.owner_type, collection.owner_id} == {"workspace", "1"}
-      assert Enum.map(collection.fields, & &1.key) == ~w(title status priority tags points done due owner link)
-      assert [%{"id" => "low", "color" => "gray"}, %{"id" => "medium"}, %{"id" => "high"}] = Field.choices(Collection.field(collection, "priority"))
-      assert Box.get_collection(collection.id).fields |> Enum.map(& &1.key) == Enum.map(collection.fields, & &1.key)
+
+      assert Enum.map(collection.fields, & &1.key) ==
+               ~w(title status priority tags points done due owner link)
+
+      assert [%{"id" => "low", "color" => "gray"}, %{"id" => "medium"}, %{"id" => "high"}] =
+               Field.choices(Collection.field(collection, "priority"))
+
+      assert Box.get_collection(collection.id).fields |> Enum.map(& &1.key) ==
+               Enum.map(collection.fields, & &1.key)
     end
 
     test "a status has its three groups when no choices are given" do
       status = Collection.field(tasks!(), "Status")
-      assert Enum.map(Field.choices(status), &{&1["id"], &1["group"]}) == [{"not_started", "todo"}, {"in_progress", "doing"}, {"done", "done"}]
+
+      assert Enum.map(Field.choices(status), &{&1["id"], &1["group"]}) == [
+               {"not_started", "todo"},
+               {"in_progress", "doing"},
+               {"done", "done"}
+             ]
     end
 
     test "is all or nothing: a field that does not check makes no collection" do
       assert {:error, %Error{reason: :invalid, message: message}} =
-               Box.create_collection(%{name: "Bad", fields: [%{name: "A", type: "text"}, %{name: "B", type: "colour"}]})
+               Box.create_collection(%{
+                 name: "Bad",
+                 fields: [%{name: "A", type: "text"}, %{name: "B", type: "colour"}]
+               })
 
       assert message =~ "type is one of text, number"
       assert Box.list_collections(nil) == []
@@ -47,12 +61,20 @@ defmodule Cardbox.CollectionsTest do
       collection = tasks!()
 
       assert {:error, %Error{message: message}} =
-               Box.add_field(collection, %{name: "Cost", type: "number", options: %{format: "currency"}})
+               Box.add_field(collection, %{
+                 name: "Cost",
+                 type: "number",
+                 options: %{format: "currency"}
+               })
 
       assert message =~ "names its currency in ISO 4217"
 
       assert {:error, %Error{message: message}} =
-               Box.add_field(collection, %{name: "Cost", type: "number", options: %{colour: "red"}})
+               Box.add_field(collection, %{
+                 name: "Cost",
+                 type: "number",
+                 options: %{colour: "red"}
+               })
 
       assert message =~ "options are format, decimals, currency"
     end
@@ -61,7 +83,11 @@ defmodule Cardbox.CollectionsTest do
       collection = tasks!()
 
       assert {:error, %Error{message: message}} =
-               Box.add_field(collection, %{name: "Parent", type: "relation", options: %{collection_id: 999_999}})
+               Box.add_field(collection, %{
+                 name: "Parent",
+                 type: "relation",
+                 options: %{collection_id: 999_999}
+               })
 
       assert message =~ "names a collection"
     end
@@ -80,12 +106,18 @@ defmodule Cardbox.CollectionsTest do
       a = insert!(collection, %{"Priority" => "High", "Tags" => ["Bug", "UI"]})
 
       {:ok, collection} =
-        Box.update_field(collection, "Priority", %{options: %{choices: [%{name: "Low"}, %{name: "Urgent", id: "high"}]}})
+        Box.update_field(collection, "Priority", %{
+          options: %{choices: [%{name: "Low"}, %{name: "Urgent", id: "high"}]}
+        })
 
-      assert Box.get(collection, a.id) |> Record.to_map(collection) |> Map.fetch!("Priority") == "Urgent"
+      assert Box.get(collection, a.id) |> Record.to_map(collection) |> Map.fetch!("Priority") ==
+               "Urgent"
 
-      {:ok, collection} = Box.update_field(collection, "Priority", %{options: %{choices: ["Low"]}})
-      {:ok, collection} = Box.update_field(collection, "Tags", %{options: %{choices: ["Bug", "Docs"]}})
+      {:ok, collection} =
+        Box.update_field(collection, "Priority", %{options: %{choices: ["Low"]}})
+
+      {:ok, collection} =
+        Box.update_field(collection, "Tags", %{options: %{choices: ["Bug", "Docs"]}})
 
       record = Box.get(collection, a.id)
       refute Map.has_key?(record.data, "priority")
@@ -128,7 +160,12 @@ defmodule Cardbox.CollectionsTest do
           name: "Big",
           type: "table",
           query: %{
-            "filter" => %{"and" => [%{"field" => "points", "op" => "gt", "value" => 1}, %{"field" => "title", "op" => "is_not_empty"}]},
+            "filter" => %{
+              "and" => [
+                %{"field" => "points", "op" => "gt", "value" => 1},
+                %{"field" => "title", "op" => "is_not_empty"}
+              ]
+            },
             "sort" => [%{"field" => "points", "dir" => "desc"}]
           },
           options: %{columns: ["title", "points"], widths: %{"points" => 80}}
@@ -138,7 +175,11 @@ defmodule Cardbox.CollectionsTest do
 
       assert Box.get(collection, a.id).data == %{"title" => "A"}
       view = Box.get_view(collection, view.id)
-      assert view.query == %{"filter" => %{"and" => [%{"field" => "title", "op" => "is_not_empty"}]}}
+
+      assert view.query == %{
+               "filter" => %{"and" => [%{"field" => "title", "op" => "is_not_empty"}]}
+             }
+
       assert view.options == %{"columns" => ["title"], "widths" => %{}}
     end
 
@@ -148,7 +189,9 @@ defmodule Cardbox.CollectionsTest do
       assert collection.fields |> Enum.map(& &1.key) |> Enum.take(3) == ~w(title link status)
       {:ok, collection} = Box.move_field(collection, "Due", to: :first)
       assert hd(collection.fields).key == "due"
-      assert Box.get_collection(collection.id).fields |> Enum.map(& &1.key) == Enum.map(collection.fields, & &1.key)
+
+      assert Box.get_collection(collection.id).fields |> Enum.map(& &1.key) ==
+               Enum.map(collection.fields, & &1.key)
     end
   end
 end

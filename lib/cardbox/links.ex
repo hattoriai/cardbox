@@ -50,30 +50,40 @@ defmodule Cardbox.Links do
 
       by_field =
         Map.new(relations, fn field ->
-          {field.key, field |> links_of(ids) |> repo.all() |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))}
+          {field.key,
+           field |> links_of(ids) |> repo.all() |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))}
         end)
 
-      Enum.map(records, fn record ->
-        data =
-          Enum.reduce(by_field, record.data, fn {key, links}, data ->
-            case Map.get(links, record.id, []) do
-              [] -> Map.delete(data, key)
-              targets -> Map.put(data, key, targets)
-            end
-          end)
-
-        %{record | data: data}
-      end)
+      Enum.map(records, &%{&1 | data: with_links(&1, by_field)})
     end
+  end
+
+  # A record's data with the ids of each relation's links, or without the
+  # relation when it has none.
+  defp with_links(record, by_field) do
+    Enum.reduce(by_field, record.data, fn {key, links}, data ->
+      case Map.get(links, record.id, []) do
+        [] -> Map.delete(data, key)
+        targets -> Map.put(data, key, targets)
+      end
+    end)
   end
 
   defp links_of(field, ids) do
     case side(field) do
       {id, :source} ->
-        from(l in Link, where: l.field_id == ^id and l.record_id in ^ids, order_by: [l.position, l.id], select: {l.record_id, l.target_id})
+        from(l in Link,
+          where: l.field_id == ^id and l.record_id in ^ids,
+          order_by: [l.position, l.id],
+          select: {l.record_id, l.target_id}
+        )
 
       {id, :target} ->
-        from(l in Link, where: l.field_id == ^id and l.target_id in ^ids, order_by: l.id, select: {l.target_id, l.record_id})
+        from(l in Link,
+          where: l.field_id == ^id and l.target_id in ^ids,
+          order_by: l.id,
+          select: {l.target_id, l.record_id}
+        )
     end
   end
 
@@ -85,17 +95,10 @@ defmodule Cardbox.Links do
   def put(repo, %Field{} = field, record_id, ids) do
     {link_field, side} = side(field)
     ids = ids || []
+    mine = mine(link_field, side, record_id)
 
-    before =
-      case side do
-        :source -> repo.all(from(l in Link, where: l.field_id == ^link_field and l.record_id == ^record_id, select: l.target_id))
-        :target -> repo.all(from(l in Link, where: l.field_id == ^link_field and l.target_id == ^record_id, select: l.record_id))
-      end
-
-    case side do
-      :source -> repo.delete_all(from(l in Link, where: l.field_id == ^link_field and l.record_id == ^record_id))
-      :target -> repo.delete_all(from(l in Link, where: l.field_id == ^link_field and l.target_id == ^record_id))
-    end
+    before = repo.all(select(mine, [l], field(l, ^other(side))))
+    repo.delete_all(mine)
 
     now = DateTime.utc_now()
 
@@ -104,7 +107,14 @@ defmodule Cardbox.Links do
       |> Enum.with_index()
       |> Enum.map(fn {id, i} ->
         {source, target} = if side == :source, do: {record_id, id}, else: {id, record_id}
-        %{field_id: link_field, record_id: source, target_id: target, position: i, inserted_at: now}
+
+        %{
+          field_id: link_field,
+          record_id: source,
+          target_id: target,
+          position: i,
+          inserted_at: now
+        }
       end)
 
     if rows != [], do: repo.insert_all(Link, rows)
@@ -114,18 +124,41 @@ defmodule Cardbox.Links do
     Enum.map(Enum.uniq(changed), &{&1, link_field, other_side})
   end
 
+  # A record's links of a field, from its side; and the column of their
+  # other ends.
+  defp mine(link_field, :source, record_id),
+    do: from(l in Link, where: l.field_id == ^link_field and l.record_id == ^record_id)
+
+  defp mine(link_field, :target, record_id),
+    do: from(l in Link, where: l.field_id == ^link_field and l.target_id == ^record_id)
+
+  defp other(:source), do: :target_id
+  defp other(:target), do: :record_id
+
   @doc """
   The records that link to a record, or that it links to: `{record_id,
   field_id, side}`, for the events of a record deleted.
   """
   def around(repo, record_id) do
-    sources = repo.all(from(l in Link, where: l.target_id == ^record_id, select: {l.record_id, l.field_id}))
-    targets = repo.all(from(l in Link, where: l.record_id == ^record_id, select: {l.target_id, l.field_id}))
-    Enum.uniq(for({id, f} <- sources, do: {id, f, :source}) ++ for({id, f} <- targets, do: {id, f, :target}))
+    sources =
+      repo.all(
+        from(l in Link, where: l.target_id == ^record_id, select: {l.record_id, l.field_id})
+      )
+
+    targets =
+      repo.all(
+        from(l in Link, where: l.record_id == ^record_id, select: {l.target_id, l.field_id})
+      )
+
+    Enum.uniq(
+      for({id, f} <- sources, do: {id, f, :source}) ++
+        for({id, f} <- targets, do: {id, f, :target})
+    )
   end
 
   @doc "Every link of a relation, gone: for a field that stops being one."
-  def delete_field_links(repo, %Field{id: id}), do: repo.delete_all(from(l in Link, where: l.field_id == ^id))
+  def delete_field_links(repo, %Field{id: id}),
+    do: repo.delete_all(from(l in Link, where: l.field_id == ^id))
 
   @doc false
   # The keys of the fields that show links of a field from a side, in the

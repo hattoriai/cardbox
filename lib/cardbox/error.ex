@@ -37,23 +37,25 @@ defmodule Cardbox.Error do
   end
 
   @doc false
-  def not_found(what), do: %__MODULE__{reason: :not_found, message: "#{what} is not in the collection"}
+  def not_found(what),
+    do: %__MODULE__{reason: :not_found, message: "#{what} is not in the collection"}
 
   @doc false
-  def unauthorized(action), do: %__MODULE__{reason: :unauthorized, message: "not allowed to #{action}"}
+  def unauthorized(action),
+    do: %__MODULE__{reason: :unauthorized, message: "not allowed to #{action}"}
 
   @doc false
   def from_changeset(%Ecto.Changeset{} = changeset) do
-    errors =
-      Enum.map(changeset.errors, fn {field, {message, opts}} ->
-        message =
-          Enum.reduce(opts, message, fn {key, value}, acc ->
-            String.replace(acc, "%{#{key}}", fn _ -> to_string(value) end)
-          end)
+    changeset.errors
+    |> Enum.map(fn {field, {message, opts}} ->
+      {Atom.to_string(field), interpolate(message, opts)}
+    end)
+    |> invalid()
+  end
 
-        {Atom.to_string(field), message}
-      end)
-
-    invalid(errors)
+  defp interpolate(message, opts) do
+    Enum.reduce(opts, message, fn {key, value}, acc ->
+      String.replace(acc, "%{#{key}}", fn _ -> to_string(value) end)
+    end)
   end
 end

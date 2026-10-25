@@ -85,6 +85,19 @@ defmodule Cardbox do
 
   @doc false
   defmacro __using__(opts) do
+    {:__block__, [],
+     [
+       setup(opts),
+       collection_functions(),
+       field_functions(),
+       record_functions(),
+       record_write_functions(),
+       view_functions()
+     ]}
+  end
+
+  # The module's config and the callbacks' defaults.
+  defp setup(opts) do
     quote bind_quoted: [opts: opts] do
       @behaviour Cardbox
       @cardbox_repo Keyword.get(opts, :repo)
@@ -106,17 +119,24 @@ defmodule Cardbox do
       def allow?(_actor, _action, _subject), do: true
 
       defoverridable actor_id: 1, allow?: 3
+    end
+  end
 
+  # The functions of collections and their fields.
+  defp collection_functions do
+    quote do
       ## Collections
 
       @doc "Makes a collection, with its `fields` if given. See `Cardbox.Collection`."
-      def create_collection(attrs, opts \\ []), do: Cardbox.Collections.create(__MODULE__, attrs, opts)
+      def create_collection(attrs, opts \\ []),
+        do: Cardbox.Collections.create(__MODULE__, attrs, opts)
 
       @doc "The collection with this id, with its fields, or nil."
       def get_collection(id), do: Cardbox.Collections.get(__MODULE__, id)
 
       @doc "The collection with this id, with its fields, or raises."
-      def get_collection!(id), do: get_collection(id) || raise(Ecto.NoResultsError, queryable: Cardbox.Collection)
+      def get_collection!(id),
+        do: get_collection(id) || raise(Ecto.NoResultsError, queryable: Cardbox.Collection)
 
       @doc "The collections of an owner (`{type, id}`), by name; of no owner with nil."
       def list_collections(owner), do: Cardbox.Collections.list(__MODULE__, owner)
@@ -126,12 +146,19 @@ defmodule Cardbox do
         do: Cardbox.Collections.update(__MODULE__, collection, attrs, opts)
 
       @doc "Deletes a collection, with its fields, records and views."
-      def delete_collection(collection, opts \\ []), do: Cardbox.Collections.delete(__MODULE__, collection, opts)
+      def delete_collection(collection, opts \\ []),
+        do: Cardbox.Collections.delete(__MODULE__, collection, opts)
+    end
+  end
 
+  # The functions of fields.
+  defp field_functions do
+    quote do
       ## Fields
 
       @doc "Adds a field (`name`, `type`, `options`); returns the collection with it. See `Cardbox.Type`."
-      def add_field(collection, attrs, opts \\ []), do: Cardbox.Collections.add_field(__MODULE__, collection, attrs, opts)
+      def add_field(collection, attrs, opts \\ []),
+        do: Cardbox.Collections.add_field(__MODULE__, collection, attrs, opts)
 
       @doc """
       Changes a field (by key or name): its `name`, `options`, `description`
@@ -145,11 +172,17 @@ defmodule Cardbox do
         do: Cardbox.Collections.delete_field(__MODULE__, collection, field, opts)
 
       @doc "Moves a field `after:` or `before:` another, or `to: :first` or `:last`."
-      def move_field(collection, field, opts), do: Cardbox.Collections.move_field(__MODULE__, collection, field, opts)
+      def move_field(collection, field, opts),
+        do: Cardbox.Collections.move_field(__MODULE__, collection, field, opts)
 
       @doc "Writes the search text of every record of a collection again, after an upgrade of Cardbox that asks for it."
       def reindex(collection), do: Cardbox.Collections.reindex(__MODULE__, collection)
+    end
+  end
 
+  # The functions that read records.
+  defp record_functions do
+    quote do
       ## Records
 
       @doc "The record of the collection with this id, or nil."
@@ -159,28 +192,38 @@ defmodule Cardbox do
       The records that meet a query (`Cardbox.Query`, its wire format, or a
       saved `Cardbox.View`), in its order; `:limit` and `:offset` page them.
       """
-      def list(collection, query \\ nil, opts \\ []), do: Cardbox.Records.list(__MODULE__, collection, query, opts)
+      def list(collection, query \\ nil, opts \\ []),
+        do: Cardbox.Records.list(__MODULE__, collection, query, opts)
 
       @doc "How many records meet a query."
-      def count(collection, query \\ nil, opts \\ []), do: Cardbox.Records.count(__MODULE__, collection, query, opts)
+      def count(collection, query \\ nil, opts \\ []),
+        do: Cardbox.Records.count(__MODULE__, collection, query, opts)
 
       @doc """
       Whether a record meets a query, without the database: for a view that
       gets a change (`Cardbox.Event`) and decides whether to show it.
       """
-      def meets?(collection, query, record, opts \\ []), do: Cardbox.Records.meets?(collection, query, record, opts)
+      def meets?(collection, query, record, opts \\ []),
+        do: Cardbox.Records.meets?(collection, query, record, opts)
 
       @doc "The titles of records of a collection by id: their first text field."
       def titles(collection_id, ids), do: Cardbox.Records.titles(__MODULE__, collection_id, ids)
+    end
+  end
 
+  # The functions that write records.
+  defp record_write_functions do
+    quote do
       @doc """
       Adds a record with values by field key or name. `after:` or `before:`
       a record, or `to: :first`, places it; it goes last otherwise.
       """
-      def insert(collection, values, opts \\ []), do: Cardbox.Records.insert(__MODULE__, collection, values, opts)
+      def insert(collection, values, opts \\ []),
+        do: Cardbox.Records.insert(__MODULE__, collection, values, opts)
 
       @doc "Adds records, all of them or none."
-      def insert_all(collection, list, opts \\ []), do: Cardbox.Records.insert_all(__MODULE__, collection, list, opts)
+      def insert_all(collection, list, opts \\ []),
+        do: Cardbox.Records.insert_all(__MODULE__, collection, list, opts)
 
       @doc """
       Changes values of a record (a record or its id); `nil` empties one.
@@ -191,11 +234,18 @@ defmodule Cardbox do
         do: Cardbox.Records.update(__MODULE__, collection, record, changes, opts)
 
       @doc "Deletes a record, and the links to it."
-      def delete(collection, record, opts \\ []), do: Cardbox.Records.delete(__MODULE__, collection, record, opts)
+      def delete(collection, record, opts \\ []),
+        do: Cardbox.Records.delete(__MODULE__, collection, record, opts)
 
       @doc "Moves a record in the collection's order: `after:` or `before:` another, or `to: :first` or `:last`."
-      def move(collection, record, opts), do: Cardbox.Records.move(__MODULE__, collection, record, opts)
+      def move(collection, record, opts),
+        do: Cardbox.Records.move(__MODULE__, collection, record, opts)
+    end
+  end
 
+  # The functions of views and of changes.
+  defp view_functions do
+    quote do
       ## Views
 
       @doc "The views of a collection: the shared ones, and those of `owner:` if given."
@@ -205,22 +255,26 @@ defmodule Cardbox do
       def get_view(collection, id), do: Cardbox.Views.get(__MODULE__, collection, id)
 
       @doc "Saves a view (`name`, `type`, `query`, `options`, `owner`). See `Cardbox.View`."
-      def save_view(collection, attrs, opts \\ []), do: Cardbox.Views.save(__MODULE__, collection, attrs, opts)
+      def save_view(collection, attrs, opts \\ []),
+        do: Cardbox.Views.save(__MODULE__, collection, attrs, opts)
 
       @doc "Changes a view."
       def update_view(collection, view, attrs, opts \\ []),
         do: Cardbox.Views.update(__MODULE__, collection, view, attrs, opts)
 
       @doc "Deletes a view."
-      def delete_view(collection, view, opts \\ []), do: Cardbox.Views.delete(__MODULE__, collection, view, opts)
+      def delete_view(collection, view, opts \\ []),
+        do: Cardbox.Views.delete(__MODULE__, collection, view, opts)
 
       ## Changes
 
       @doc "Subscribes the process to a collection's changes (`Cardbox.Event`)."
-      def subscribe(collection), do: Phoenix.PubSub.subscribe(@cardbox_pubsub, Cardbox.Event.topic(collection))
+      def subscribe(collection),
+        do: Phoenix.PubSub.subscribe(@cardbox_pubsub, Cardbox.Event.topic(collection))
 
       @doc "Unsubscribes the process from a collection's changes."
-      def unsubscribe(collection), do: Phoenix.PubSub.unsubscribe(@cardbox_pubsub, Cardbox.Event.topic(collection))
+      def unsubscribe(collection),
+        do: Phoenix.PubSub.unsubscribe(@cardbox_pubsub, Cardbox.Event.topic(collection))
     end
   end
 
@@ -250,7 +304,13 @@ defmodule Cardbox do
             "operators" => Enum.map(Cardbox.Type.operators(field), &Atom.to_string/1)
           }
           |> put_if("description", field.description)
-          |> put_if("choices", field |> Cardbox.Field.choices() |> Enum.map(&Map.take(&1, ~w(name group))) |> nonempty())
+          |> put_if(
+            "choices",
+            field
+            |> Cardbox.Field.choices()
+            |> Enum.map(&Map.take(&1, ~w(name group)))
+            |> nonempty()
+          )
           |> put_if("read_only", Cardbox.Type.system?(field.type) || nil)
           |> put_if("options", field.options |> Map.drop(["choices"]) |> nonempty_map())
         end)
@@ -259,7 +319,9 @@ defmodule Cardbox do
   end
 
   defp put_if(map, _key, nil), do: Map.reject(map, fn {_k, v} -> is_nil(v) end)
-  defp put_if(map, key, value), do: map |> Map.put(key, value) |> Map.reject(fn {_k, v} -> is_nil(v) end)
+
+  defp put_if(map, key, value),
+    do: map |> Map.put(key, value) |> Map.reject(fn {_k, v} -> is_nil(v) end)
 
   defp nonempty([]), do: nil
   defp nonempty(list), do: list

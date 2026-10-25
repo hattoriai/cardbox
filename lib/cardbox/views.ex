@@ -41,7 +41,12 @@ defmodule Cardbox.Views do
     attrs = attrs |> Collections.stringify() |> Map.take(~w(name type query options owner))
 
     with :ok <- Store.allow(mod, opts, :save_view, collection),
-         {:ok, attrs} <- check(collection, Map.merge(%{"query" => view.query, "options" => view.options}, attrs), attrs["type"] || view.type) do
+         {:ok, attrs} <-
+           check(
+             collection,
+             Map.merge(%{"query" => view.query, "options" => view.options}, attrs),
+             attrs["type"] || view.type
+           ) do
       view
       |> View.changeset(attrs)
       |> Store.repo(mod).update()
@@ -62,7 +67,8 @@ defmodule Cardbox.Views do
     {:ok, view}
   end
 
-  defp broadcast({:error, changeset}, _mod, _collection, _opts), do: {:error, Error.from_changeset(changeset)}
+  defp broadcast({:error, changeset}, _mod, _collection, _opts),
+    do: {:error, Error.from_changeset(changeset)}
 
   @doc false
   # A view's query, read leniently: what still holds of it after its fields
@@ -94,43 +100,55 @@ defmodule Cardbox.Views do
   defp check_options(collection, type, options) do
     options = Collections.stringify(options)
 
-    result =
-      case type do
-        "table" -> table(collection, options)
-        "board" -> board(collection, options)
-        "list" -> keys(collection, options, ~w(fields))
-        "calendar" -> calendar(collection, options)
-        "chart" -> chart(options)
-        "canvas" -> canvas(collection, options)
-        _other -> {:ok, options}
-      end
-
-    case result do
+    case options_of(type, collection, options) do
       {:ok, options} -> {:ok, options}
       {:error, message} -> {:error, Error.invalid([{"options", message}])}
     end
   end
 
+  # The options of a view's type, checked.
+  defp options_of("table", collection, options), do: table(collection, options)
+  defp options_of("board", collection, options), do: board(collection, options)
+  defp options_of("list", collection, options), do: keys(collection, options, ~w(fields))
+  defp options_of("calendar", collection, options), do: calendar(collection, options)
+  defp options_of("chart", _collection, options), do: chart(options)
+  defp options_of("canvas", collection, options), do: canvas(collection, options)
+  defp options_of(_type, _collection, options), do: {:ok, options}
+
   defp table(collection, options) do
     with {:ok, options} <- keys(collection, options, ~w(columns hidden)) do
       case options["widths"] do
-        nil -> {:ok, options}
-        %{} = widths -> widths(collection, widths, options)
-        other -> {:error, "a table's widths are a map of field keys and pixels, got: #{inspect(other)}"}
+        nil ->
+          {:ok, options}
+
+        %{} = widths ->
+          widths(collection, widths, options)
+
+        other ->
+          {:error, "a table's widths are a map of field keys and pixels, got: #{inspect(other)}"}
       end
     end
   end
 
   defp widths(collection, widths, options) do
     widths =
-      for {ref, px} <- widths, field = Collection.field(collection, ref), is_integer(px) and px in 40..2000, into: %{},
-        do: {field.key, px}
+      for {ref, px} <- widths,
+          field = Collection.field(collection, ref),
+          is_integer(px) and px in 40..2000,
+          into: %{},
+          do: {field.key, px}
 
     {:ok, Map.put(options, "widths", widths)}
   end
 
   defp board(collection, options) do
-    with {:ok, field} <- one_field(collection, options["group_by"], "a board's group_by", &(Type.kind(&1) in [:choice, :boolean])),
+    with {:ok, field} <-
+           one_field(
+             collection,
+             options["group_by"],
+             "a board's group_by",
+             &(Type.kind(&1) in [:choice, :boolean])
+           ),
          {:ok, options} <- keys(collection, options, ~w(card_fields)) do
       hidden = options["hidden_groups"] || []
 
@@ -141,7 +159,13 @@ defmodule Cardbox.Views do
   end
 
   defp calendar(collection, options) do
-    with {:ok, field} <- one_field(collection, options["date_field"], "a calendar's date_field", &(Type.kind(&1) in [:date, :datetime])) do
+    with {:ok, field} <-
+           one_field(
+             collection,
+             options["date_field"],
+             "a calendar's date_field",
+             &(Type.kind(&1) in [:date, :datetime])
+           ) do
       {:ok, Map.put(options, "date_field", field.key)}
     end
   end
@@ -157,9 +181,14 @@ defmodule Cardbox.Views do
   defp canvas(collection, options) do
     with {:ok, options} <- edges(collection, options) do
       case options["layout"] do
-        nil -> {:ok, options}
-        %{} = layout -> {:ok, Map.put(options, "layout", layout(layout))}
-        other -> {:error, "a canvas's layout is a map of record ids and places, got: #{inspect(other)}"}
+        nil ->
+          {:ok, options}
+
+        %{} = layout ->
+          {:ok, Map.put(options, "layout", layout(layout))}
+
+        other ->
+          {:error, "a canvas's layout is a map of record ids and places, got: #{inspect(other)}"}
       end
     end
   end
@@ -184,30 +213,44 @@ defmodule Cardbox.Views do
 
   defp one_field(collection, ref, what, ok?) do
     case (is_binary(ref) or is_atom(ref)) && ref && Collection.field(collection, ref) do
-      nil -> {:error, "#{what} names a field of the collection, got: #{inspect(ref)}"}
-      false -> {:error, "#{what} names a field, got: #{inspect(ref)}"}
-      field -> if ok?.(field), do: {:ok, field}, else: {:error, "#{what} cannot be #{inspect(field.name)} (#{field.type})"}
+      nil ->
+        {:error, "#{what} names a field of the collection, got: #{inspect(ref)}"}
+
+      false ->
+        {:error, "#{what} names a field, got: #{inspect(ref)}"}
+
+      field ->
+        if ok?.(field),
+          do: {:ok, field},
+          else: {:error, "#{what} cannot be #{inspect(field.name)} (#{field.type})"}
     end
   end
 
   # Options that list fields, given by key or name, kept by key.
   defp keys(collection, options, names) do
     Enum.reduce_while(names, {:ok, options}, fn name, {:ok, options} ->
-      case options[name] do
-        nil ->
-          {:cont, {:ok, options}}
-
-        list when is_list(list) ->
-          case Enum.split_with(list, &Collection.field(collection, &1)) do
-            {found, []} -> {:cont, {:ok, Map.put(options, name, Enum.map(found, &Collection.field(collection, &1).key))}}
-            {_found, [ref | _]} -> {:halt, {:error, "#{name} names fields of the collection, got: #{inspect(ref)}"}}
-          end
-
-        other ->
-          {:halt, {:error, "#{name} is a list of fields, got: #{inspect(other)}"}}
+      case field_keys(collection, name, options[name]) do
+        {:ok, nil} -> {:cont, {:ok, options}}
+        {:ok, keys} -> {:cont, {:ok, Map.put(options, name, keys)}}
+        error -> {:halt, error}
       end
     end)
   end
+
+  defp field_keys(_collection, _name, nil), do: {:ok, nil}
+
+  defp field_keys(collection, name, list) when is_list(list) do
+    case Enum.split_with(list, &Collection.field(collection, &1)) do
+      {found, []} ->
+        {:ok, Enum.map(found, &Collection.field(collection, &1).key)}
+
+      {_found, [ref | _]} ->
+        {:error, "#{name} names fields of the collection, got: #{inspect(ref)}"}
+    end
+  end
+
+  defp field_keys(_collection, name, other),
+    do: {:error, "#{name} is a list of fields, got: #{inspect(other)}"}
 
   @doc false
   # A deleted field, taken out of every view of its collection: its
@@ -227,8 +270,14 @@ defmodule Cardbox.Views do
 
   defp drop_from_query(query, key) do
     query
-    |> then(fn q -> if f = q["filter"], do: put_or_delete(q, "filter", drop_from_filter(f, key)), else: q end)
-    |> then(fn q -> if s = q["sort"], do: put_or_delete(q, "sort", Enum.reject(s, &(&1["field"] == key))), else: q end)
+    |> then(fn q ->
+      if f = q["filter"], do: put_or_delete(q, "filter", drop_from_filter(f, key)), else: q
+    end)
+    |> then(fn q ->
+      if s = q["sort"],
+        do: put_or_delete(q, "sort", Enum.reject(s, &(&1["field"] == key))),
+        else: q
+    end)
   end
 
   defp drop_from_filter(%{"field" => field}, key) when field == key, do: nil

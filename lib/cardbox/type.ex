@@ -52,6 +52,23 @@ defmodule Cardbox.Type do
 
   @max_text 100_000
 
+  # The kinds of the types whose kind is not in their options.
+  @kinds Map.merge(
+           Map.new(~w(text url email phone), &{&1, :text}),
+           %{
+             "number" => :number,
+             "checkbox" => :boolean,
+             "select" => :choice,
+             "status" => :choice,
+             "multi_select" => :list,
+             "relation" => :list,
+             "created_at" => :datetime,
+             "updated_at" => :datetime,
+             "created_by" => :choice,
+             "updated_by" => :choice
+           }
+         )
+
   @typedoc "How a type's values compare, in Elixir and in SQL."
   @type kind :: :text | :number | :boolean | :date | :datetime | :choice | :list
 
@@ -68,34 +85,28 @@ defmodule Cardbox.Type do
   (a day), `:datetime`, `:choice` (one id) or `:list` (several).
   """
   @spec kind(map()) :: kind()
-  def kind(%{type: type, options: options}) do
-    case type do
-      t when t in ~w(text url email phone) -> :text
-      "number" -> :number
-      "checkbox" -> :boolean
-      "date" -> if options["time"], do: :datetime, else: :date
-      t when t in ~w(select status) -> :choice
-      t when t in ~w(multi_select relation) -> :list
-      "person" -> if options["multiple"], do: :list, else: :choice
-      t when t in ~w(created_at updated_at) -> :datetime
-      t when t in ~w(created_by updated_by) -> :choice
-    end
-  end
+  def kind(%{type: "date", options: options}), do: if(options["time"], do: :datetime, else: :date)
+
+  def kind(%{type: "person", options: options}),
+    do: if(options["multiple"], do: :list, else: :choice)
+
+  def kind(%{type: type}), do: Map.fetch!(@kinds, type)
 
   @doc "The filter operators of a field (`Cardbox.Filter`)."
   @spec operators(map()) :: [atom()]
-  def operators(%{type: type} = field) do
-    case kind(field) do
-      :text -> @text_ops
-      :number -> @number_ops
-      :boolean -> [:eq]
-      kind when kind in [:date, :datetime] and type in @system -> @date_ops -- [:is_empty, :is_not_empty]
-      kind when kind in [:date, :datetime] -> @date_ops
-      :choice when type == "status" -> @choice_ops ++ [:in_group]
-      :choice -> @choice_ops
-      :list -> @list_ops
-    end
-  end
+  def operators(%{type: type} = field), do: operators(kind(field), type)
+
+  defp operators(:text, _type), do: @text_ops
+  defp operators(:number, _type), do: @number_ops
+  defp operators(:boolean, _type), do: [:eq]
+
+  defp operators(kind, type) when kind in [:date, :datetime] and type in @system,
+    do: @date_ops -- [:is_empty, :is_not_empty]
+
+  defp operators(kind, _type) when kind in [:date, :datetime], do: @date_ops
+  defp operators(:choice, "status"), do: @choice_ops ++ [:in_group]
+  defp operators(:choice, _type), do: @choice_ops
+  defp operators(:list, _type), do: @list_ops
 
   @doc "Whether a field sorts: every field but those of several values."
   @spec sortable?(map()) :: boolean()
@@ -141,7 +152,8 @@ defmodule Cardbox.Type do
         {:error, "a #{type} field takes no options, got: #{inspect(key)}"}
 
       [key | _] ->
-        {:error, "a #{type} field's options are #{Enum.join(allowed, ", ")}, got: #{inspect(key)}"}
+        {:error,
+         "a #{type} field's options are #{Enum.join(allowed, ", ")}, got: #{inspect(key)}"}
     end
   end
 
@@ -149,24 +161,11 @@ defmodule Cardbox.Type do
 
   defp options("number", options, _previous) do
     format = options["format"] || "number"
-    decimals = options["decimals"]
-    currency = options["currency"]
 
-    cond do
-      format not in @formats ->
-        {:error, "a number's format is one of #{Enum.join(@formats, ", ")}, got: #{inspect(format)}"}
-
-      decimals != nil and not (is_integer(decimals) and decimals in 0..10) ->
-        {:error, "a number's decimals are from 0 to 10, got: #{inspect(decimals)}"}
-
-      format == "currency" and not (is_binary(currency) and currency =~ ~r/^[A-Z]{3}$/) ->
-        {:error, "a currency number names its currency in ISO 4217 (\"EUR\"), got: #{inspect(currency)}"}
-
-      format != "currency" and currency != nil ->
-        {:error, "only a currency number has a currency"}
-
-      true ->
-        {:ok, Map.put(options, "format", format)}
+    with :ok <- format(format),
+         :ok <- decimals(options["decimals"]),
+         :ok <- currency(format, options["currency"]) do
+      {:ok, Map.put(options, "format", format)}
     end
   end
 
@@ -197,6 +196,30 @@ defmodule Cardbox.Type do
   end
 
   defp options(_type, options, _previous), do: {:ok, options}
+
+  defp format(format) when format in @formats, do: :ok
+
+  defp format(format),
+    do:
+      {:error,
+       "a number's format is one of #{Enum.join(@formats, ", ")}, got: #{inspect(format)}"}
+
+  defp decimals(decimals) when is_nil(decimals) or (is_integer(decimals) and decimals in 0..10),
+    do: :ok
+
+  defp decimals(decimals),
+    do: {:error, "a number's decimals are from 0 to 10, got: #{inspect(decimals)}"}
+
+  defp currency("currency", currency) do
+    if is_binary(currency) and currency =~ ~r/^[A-Z]{3}$/,
+      do: :ok,
+      else:
+        {:error,
+         "a currency number names its currency in ISO 4217 (\"EUR\"), got: #{inspect(currency)}"}
+  end
+
+  defp currency(_format, nil), do: :ok
+  defp currency(_format, _currency), do: {:error, "only a currency number has a currency"}
 
   defp boolean_option(options, key) do
     case options[key] do
@@ -237,15 +260,7 @@ defmodule Cardbox.Type do
 
   defp do_cast("number", %{options: options}, value, _opts) do
     with {:ok, number} <- number(value) do
-      if options["format"] == "integer" do
-        cond do
-          is_integer(number) -> {:ok, number}
-          number == trunc(number) -> {:ok, trunc(number)}
-          true -> {:error, "is a whole number, got: #{inspect(value)}"}
-        end
-      else
-        {:ok, number}
-      end
+      if options["format"] == "integer", do: whole(number, value), else: {:ok, number}
     end
   end
 
@@ -335,6 +350,10 @@ defmodule Cardbox.Type do
         else: {:ok, ids}
     end
   end
+
+  defp whole(number, _value) when is_integer(number), do: {:ok, number}
+  defp whole(number, _value) when number == trunc(number), do: {:ok, trunc(number)}
+  defp whole(_number, value), do: {:error, "is a whole number, got: #{inspect(value)}"}
 
   defp text(value) when is_binary(value) do
     if String.valid?(value), do: {:ok, value}, else: {:error, "is not valid UTF-8"}

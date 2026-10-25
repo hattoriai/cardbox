@@ -75,14 +75,20 @@ defmodule Cardbox.Query do
   end
 
   def parse(other, _collection, _opts),
-    do: {:error, "a query is a map of \"filter\", \"sort\" and \"search\", got: #{inspect(other)}"}
+    do:
+      {:error, "a query is a map of \"filter\", \"sort\" and \"search\", got: #{inspect(other)}"}
 
   @doc "The query in the wire format."
   @spec to_wire(t()) :: map()
   def to_wire(%__MODULE__{filter: filter, sorts: sorts, search: search}) do
     %{}
     |> then(&if(filter, do: Map.put(&1, "filter", filter_to_wire(filter)), else: &1))
-    |> then(&if(sorts != [], do: Map.put(&1, "sort", Enum.map(sorts, fn s -> Sort.to_wire(s) end)), else: &1))
+    |> then(
+      &if(sorts != [],
+        do: Map.put(&1, "sort", Enum.map(sorts, fn s -> Sort.to_wire(s) end)),
+        else: &1
+      )
+    )
     |> then(&if(search, do: Map.put(&1, "search", search), else: &1))
   end
 
@@ -98,8 +104,11 @@ defmodule Cardbox.Query do
 
   defp known_keys(wire) do
     case Map.keys(wire) -- ~w(filter sort search) do
-      [] -> :ok
-      [key | _] -> {:error, "a query has \"filter\", \"sort\" and \"search\", got: #{inspect(key)}"}
+      [] ->
+        :ok
+
+      [key | _] ->
+        {:error, "a query has \"filter\", \"sort\" and \"search\", got: #{inspect(key)}"}
     end
   end
 
@@ -122,7 +131,9 @@ defmodule Cardbox.Query do
     do: group(:and, list, collection, lenient?, depth)
 
   defp filter(other, _collection, _lenient?, _depth),
-    do: {:error, "a filter is a condition, or a map of \"and\" or \"or\" and a list, got: #{inspect(other)}"}
+    do:
+      {:error,
+       "a filter is a condition, or a map of \"and\" or \"or\" and a list, got: #{inspect(other)}"}
 
   defp group(op, list, collection, lenient?, depth) when is_list(list) do
     list
@@ -186,14 +197,21 @@ defmodule Cardbox.Query do
     text = String.trim(text)
 
     cond do
-      text == "" -> {:ok, nil}
-      String.length(text) > @max_search -> {:error, "a search is at most #{@max_search} characters"}
-      true -> {:ok, text}
+      text == "" ->
+        {:ok, nil}
+
+      String.length(text) > @max_search ->
+        {:error, "a search is at most #{@max_search} characters"}
+
+      true ->
+        {:ok, text}
     end
   end
 
   defp search(other), do: {:error, "a search is a text, got: #{inspect(other)}"}
 
   defp filter_to_wire(%Filter{} = filter), do: Filter.to_wire(filter)
-  defp filter_to_wire({op, filters}), do: %{Atom.to_string(op) => Enum.map(filters, &filter_to_wire/1)}
+
+  defp filter_to_wire({op, filters}),
+    do: %{Atom.to_string(op) => Enum.map(filters, &filter_to_wire/1)}
 end

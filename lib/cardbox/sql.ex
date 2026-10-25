@@ -59,11 +59,15 @@ defmodule Cardbox.SQL do
   def condition(false, _dialect), do: dynamic(false)
 
   def condition({:and, items}, dialect) do
-    Enum.reduce(items, dynamic(true), fn item, acc -> dynamic(^acc and ^condition(item, dialect)) end)
+    Enum.reduce(items, dynamic(true), fn item, acc ->
+      dynamic(^acc and ^condition(item, dialect))
+    end)
   end
 
   def condition({:or, items}, dialect) do
-    Enum.reduce(items, dynamic(false), fn item, acc -> dynamic(^acc or ^condition(item, dialect)) end)
+    Enum.reduce(items, dynamic(false), fn item, acc ->
+      dynamic(^acc or ^condition(item, dialect))
+    end)
   end
 
   def condition({:not, inner}, dialect), do: dynamic(not (^condition(inner, dialect)))
@@ -94,7 +98,11 @@ defmodule Cardbox.SQL do
     do: dynamic([record: r], fragment("coalesce((?->?) = 'true'::jsonb, false)", r.data, ^key))
 
   def condition({:cmp, {:data, key, :boolean}, :eq, true}, :sqlite),
-    do: dynamic([record: r], fragment("coalesce(json_type(?, ?) = 'true', false)", r.data, ^path(key)))
+    do:
+      dynamic(
+        [record: r],
+        fragment("coalesce(json_type(?, ?) = 'true', false)", r.data, ^path(key))
+      )
 
   def condition({:cmp, ref, op, value}, dialect) do
     expr = value(ref, dialect)
@@ -117,16 +125,52 @@ defmodule Cardbox.SQL do
   defp value({:data, key, kind}, :postgres) do
     case kind do
       :number ->
-        dynamic([record: r], fragment("(CASE WHEN jsonb_typeof(?->?) = 'number' THEN (?->>?)::numeric END)", r.data, ^key, r.data, ^key))
+        dynamic(
+          [record: r],
+          fragment(
+            "(CASE WHEN jsonb_typeof(?->?) = 'number' THEN (?->>?)::numeric END)",
+            r.data,
+            ^key,
+            r.data,
+            ^key
+          )
+        )
 
       :boolean ->
-        dynamic([record: r], fragment("(CASE WHEN jsonb_typeof(?->?) = 'boolean' THEN (?->>?)::boolean END)", r.data, ^key, r.data, ^key))
+        dynamic(
+          [record: r],
+          fragment(
+            "(CASE WHEN jsonb_typeof(?->?) = 'boolean' THEN (?->>?)::boolean END)",
+            r.data,
+            ^key,
+            r.data,
+            ^key
+          )
+        )
 
       date when date in [:date, :datetime] ->
-        dynamic([record: r], fragment("(CASE WHEN jsonb_typeof(?->?) = 'string' THEN (?->>?) END) COLLATE \"C\"", r.data, ^key, r.data, ^key))
+        dynamic(
+          [record: r],
+          fragment(
+            "(CASE WHEN jsonb_typeof(?->?) = 'string' THEN (?->>?) END) COLLATE \"C\"",
+            r.data,
+            ^key,
+            r.data,
+            ^key
+          )
+        )
 
       _text ->
-        dynamic([record: r], fragment("(CASE WHEN jsonb_typeof(?->?) = 'string' THEN (?->>?) END)", r.data, ^key, r.data, ^key))
+        dynamic(
+          [record: r],
+          fragment(
+            "(CASE WHEN jsonb_typeof(?->?) = 'string' THEN (?->>?) END)",
+            r.data,
+            ^key,
+            r.data,
+            ^key
+          )
+        )
     end
   end
 
@@ -135,21 +179,57 @@ defmodule Cardbox.SQL do
 
     case kind do
       :number ->
-        dynamic([record: r], fragment("(CASE WHEN json_type(?, ?) IN ('integer', 'real') THEN json_extract(?, ?) END)", r.data, ^path, r.data, ^path))
+        dynamic(
+          [record: r],
+          fragment(
+            "(CASE WHEN json_type(?, ?) IN ('integer', 'real') THEN json_extract(?, ?) END)",
+            r.data,
+            ^path,
+            r.data,
+            ^path
+          )
+        )
 
       :boolean ->
-        dynamic([record: r], fragment("(CASE WHEN json_type(?, ?) IN ('true', 'false') THEN json_extract(?, ?) END)", r.data, ^path, r.data, ^path))
+        dynamic(
+          [record: r],
+          fragment(
+            "(CASE WHEN json_type(?, ?) IN ('true', 'false') THEN json_extract(?, ?) END)",
+            r.data,
+            ^path,
+            r.data,
+            ^path
+          )
+        )
 
       _text ->
-        dynamic([record: r], fragment("(CASE WHEN json_type(?, ?) = 'text' THEN json_extract(?, ?) END)", r.data, ^path, r.data, ^path))
+        dynamic(
+          [record: r],
+          fragment(
+            "(CASE WHEN json_type(?, ?) = 'text' THEN json_extract(?, ?) END)",
+            r.data,
+            ^path,
+            r.data,
+            ^path
+          )
+        )
     end
   end
 
-  defp empty({:column, column, _kind}, _dialect), do: dynamic([record: r], is_nil(field(r, ^column)))
+  defp empty({:column, column, _kind}, _dialect),
+    do: dynamic([record: r], is_nil(field(r, ^column)))
+
   defp empty({:links, {_key, side}, :list}, _dialect), do: dynamic(not exists(links(side)))
 
   defp empty({:data, key, _kind}, :postgres) do
-    dynamic([record: r], fragment("coalesce((?->?) IN ('null'::jsonb, '\"\"'::jsonb, '[]'::jsonb), true)", r.data, ^key))
+    dynamic(
+      [record: r],
+      fragment(
+        "coalesce((?->?) IN ('null'::jsonb, '\"\"'::jsonb, '[]'::jsonb), true)",
+        r.data,
+        ^key
+      )
+    )
   end
 
   defp empty({:data, key, _kind}, :sqlite) do
@@ -159,7 +239,16 @@ defmodule Cardbox.SQL do
       [record: r],
       fragment(
         "coalesce(json_type(?, ?) = 'null' OR (json_type(?, ?) = 'text' AND json_extract(?, ?) = '') OR (json_type(?, ?) = 'array' AND json_array_length(?, ?) = 0), true)",
-        r.data, ^path, r.data, ^path, r.data, ^path, r.data, ^path, r.data, ^path
+        r.data,
+        ^path,
+        r.data,
+        ^path,
+        r.data,
+        ^path,
+        r.data,
+        ^path,
+        r.data,
+        ^path
       )
     )
   end
@@ -171,11 +260,17 @@ defmodule Cardbox.SQL do
     do: dynamic(exists(where(links(side), [l], l.record_id == ^id)))
 
   defp has({:data, key, _kind}, value, :postgres) when is_integer(value) do
-    dynamic([record: r], fragment("coalesce((?->?) @> jsonb_build_array(?::bigint), false)", r.data, ^key, ^value))
+    dynamic(
+      [record: r],
+      fragment("coalesce((?->?) @> jsonb_build_array(?::bigint), false)", r.data, ^key, ^value)
+    )
   end
 
   defp has({:data, key, _kind}, value, :postgres) do
-    dynamic([record: r], fragment("coalesce((?->?) @> jsonb_build_array(?::text), false)", r.data, ^key, ^value))
+    dynamic(
+      [record: r],
+      fragment("coalesce((?->?) @> jsonb_build_array(?::text), false)", r.data, ^key, ^value)
+    )
   end
 
   defp has({:data, key, _kind}, value, :sqlite) do
@@ -185,7 +280,11 @@ defmodule Cardbox.SQL do
       [record: r],
       fragment(
         "coalesce(json_type(?, ?) = 'array' AND EXISTS (SELECT 1 FROM json_each(?, ?) WHERE value = ?), false)",
-        r.data, ^path, r.data, ^path, ^value
+        r.data,
+        ^path,
+        r.data,
+        ^path,
+        ^value
       )
     )
   end
@@ -198,17 +297,27 @@ defmodule Cardbox.SQL do
   defp param({:column, _column, :datetime}, %DateTime{} = dt, _dialect),
     do: %{dt | microsecond: {elem(dt.microsecond, 0), 6}}
 
-  defp param({:data, _key, :number}, value, :postgres) when is_float(value), do: Decimal.from_float(value)
+  defp param({:data, _key, :number}, value, :postgres) when is_float(value),
+    do: Decimal.from_float(value)
+
   defp param(_ref, value, _dialect), do: value
 
   defp path(key), do: "$." <> key
 
   # The links of the record a relation reads, from its side.
   defp links({field_id, :source}),
-    do: from(l in Link, where: l.field_id == ^field_id and l.record_id == parent_as(:record).id, select: 1)
+    do:
+      from(l in Link,
+        where: l.field_id == ^field_id and l.record_id == parent_as(:record).id,
+        select: 1
+      )
 
   defp links({field_id, :target}),
-    do: from(l in Link, where: l.field_id == ^field_id and l.target_id == parent_as(:record).id, select: 1)
+    do:
+      from(l in Link,
+        where: l.field_id == ^field_id and l.target_id == parent_as(:record).id,
+        select: 1
+      )
 
   @doc false
   # The query's sorts, empty values last, then the collection's own order.
@@ -221,7 +330,11 @@ defmodule Cardbox.SQL do
         [{:asc, dynamic(is_nil(^expr))}, {dir, expr}]
       end)
 
-    order_by(ecto, [record: r], ^(terms ++ [asc: dynamic([record: r], r.position), asc: dynamic([record: r], r.id)]))
+    order_by(
+      ecto,
+      [record: r],
+      ^(terms ++ [asc: dynamic([record: r], r.position), asc: dynamic([record: r], r.id)])
+    )
   end
 
   defp sort_value(%Field{type: type} = field, dialect) when type in ~w(select status) do
@@ -236,8 +349,11 @@ defmodule Cardbox.SQL do
 
   defp sort_value(field, dialect) do
     case Condition.ref(field) do
-      {:data, _key, kind} = ref when kind in [:text, :choice] -> dynamic(fragment("lower(?)", ^value(ref, dialect)))
-      ref -> value(ref, dialect)
+      {:data, _key, kind} = ref when kind in [:text, :choice] ->
+        dynamic(fragment("lower(?)", ^value(ref, dialect)))
+
+      ref ->
+        value(ref, dialect)
     end
   end
 end

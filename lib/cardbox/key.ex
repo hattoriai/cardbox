@@ -6,7 +6,7 @@ defmodule Cardbox.Key do
 
   @max 40
 
-  @doc "A key from a name, not one of `taken`: `\"Due date\"` is `\"due_date\"`, then `\"due_date_2\"`."
+  @doc ~s(A key from a name, not one of `taken`: `"Due date"` is `"due_date"`, then `"due_date_2"`.)
   @spec from_name(String.t(), [String.t()], String.t()) :: String.t()
   def from_name(name, taken, fallback) do
     base =

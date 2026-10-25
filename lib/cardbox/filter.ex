@@ -63,13 +63,15 @@ defmodule Cardbox.Filter do
 
     with {:ok, field} <- field(condition["field"], collection),
          {:ok, op} <- op(condition["op"], field),
-         {:ok, value} <- value(field, op, Map.get(condition, "value"), Map.has_key?(condition, "value")) do
+         {:ok, value} <-
+           value(field, op, Map.get(condition, "value"), Map.has_key?(condition, "value")) do
       {:ok, %__MODULE__{field: field.key, op: op, value: value}}
     end
   end
 
   def parse(other, _collection),
-    do: {:error, "a condition is a map of \"field\", \"op\" and \"value\", got: #{inspect(other)}"}
+    do:
+      {:error, "a condition is a map of \"field\", \"op\" and \"value\", got: #{inspect(other)}"}
 
   @doc false
   @spec to_wire(t()) :: map()
@@ -141,7 +143,9 @@ defmodule Cardbox.Filter do
   defp value(field, :within, value, true) do
     if value in @ranges,
       do: {:ok, value},
-      else: {:error, "#{inspect(field.name)} within takes one of #{Enum.join(@ranges, ", ")}, got: #{inspect(value)}"}
+      else:
+        {:error,
+         "#{inspect(field.name)} within takes one of #{Enum.join(@ranges, ", ")}, got: #{inspect(value)}"}
   end
 
   defp value(field, op, value, true), do: one(field, op, value)
@@ -163,7 +167,8 @@ defmodule Cardbox.Filter do
       else: {:ok, value}
   end
 
-  defp text(field, _op, value), do: {:error, "#{inspect(field.name)} takes a text, got: #{inspect(value)}"}
+  defp text(field, _op, value),
+    do: {:error, "#{inspect(field.name)} takes a text, got: #{inspect(value)}"}
 
   defp number(field, value) do
     case Type.cast(%{type: "number", options: %{}}, value) do
@@ -175,13 +180,21 @@ defmodule Cardbox.Filter do
   defp boolean(_field, value) when is_boolean(value), do: {:ok, value}
   defp boolean(_field, "true"), do: {:ok, true}
   defp boolean(_field, "false"), do: {:ok, false}
-  defp boolean(field, value), do: {:error, "#{inspect(field.name)} takes true or false, got: #{inspect(value)}"}
+
+  defp boolean(field, value),
+    do: {:error, "#{inspect(field.name)} takes true or false, got: #{inspect(value)}"}
 
   defp day(field, value) when is_binary(value) do
     cond do
-      value in @relative_days -> {:ok, value}
-      match?({:ok, _}, Date.from_iso8601(value)) -> {:ok, value}
-      true -> {:error, "#{inspect(field.name)} takes a day as YYYY-MM-DD or one of #{Enum.join(@relative_days, ", ")}, got: #{inspect(value)}"}
+      value in @relative_days ->
+        {:ok, value}
+
+      match?({:ok, _}, Date.from_iso8601(value)) ->
+        {:ok, value}
+
+      true ->
+        {:error,
+         "#{inspect(field.name)} takes a day as YYYY-MM-DD or one of #{Enum.join(@relative_days, ", ")}, got: #{inspect(value)}"}
     end
   end
 
@@ -208,14 +221,20 @@ defmodule Cardbox.Filter do
 
   defp member(field, value) do
     case to_text(value) do
-      text when is_binary(text) and text != "" -> {:ok, text}
-      _ -> {:error, "#{inspect(field.name)} takes a person's id or \"me\", got: #{inspect(value)}"}
+      text when is_binary(text) and text != "" ->
+        {:ok, text}
+
+      _ ->
+        {:error, "#{inspect(field.name)} takes a person's id or \"me\", got: #{inspect(value)}"}
     end
   end
 
   defp to_text(value) when is_binary(value), do: value
   defp to_text(value) when is_integer(value), do: Integer.to_string(value)
-  defp to_text(value) when is_atom(value) and not is_nil(value) and not is_boolean(value), do: Atom.to_string(value)
+
+  defp to_text(value) when is_atom(value) and not is_nil(value) and not is_boolean(value),
+    do: Atom.to_string(value)
+
   defp to_text(_value), do: nil
 
   defp map_ok(values, fun) do

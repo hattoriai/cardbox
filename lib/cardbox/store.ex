@@ -34,12 +34,18 @@ defmodule Cardbox.Store do
     :telemetry.execute([:cardbox, :change], %{count: 1}, %{event: event, module: mod})
 
     case mod.__cardbox__(:pubsub) do
-      nil -> :ok
-      pubsub -> Phoenix.PubSub.broadcast(pubsub, Event.topic(event.collection_id), {:cardbox, event})
+      nil ->
+        :ok
+
+      pubsub ->
+        Phoenix.PubSub.broadcast(pubsub, Event.topic(event.collection_id), {:cardbox, event})
     end
   end
 
   def event(type, collection_id, opts, mod, fields \\ []) do
-    struct!(Event, [type: type, collection_id: collection_id, actor: actor_id(mod, opts)] ++ fields)
+    struct!(
+      Event,
+      [type: type, collection_id: collection_id, actor: actor_id(mod, opts)] ++ fields
+    )
   end
 end

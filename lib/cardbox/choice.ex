@@ -97,7 +97,8 @@ defmodule Cardbox.Choice do
     end
   end
 
-  defp read(other), do: {:error, "a choice is a name or a map with a \"name\", got: #{inspect(other)}"}
+  defp read(other),
+    do: {:error, "a choice is a name or a map with a \"name\", got: #{inspect(other)}"}
 
   defp unique_name(choice, names) do
     if MapSet.member?(names, String.downcase(choice["name"])),
@@ -106,15 +107,7 @@ defmodule Cardbox.Choice do
   end
 
   defp complete(choice, i, status?, acc, by_name) do
-    taken = Enum.map(acc, & &1["id"])
-
-    id =
-      cond do
-        Key.valid?(choice["id"]) and choice["id"] not in taken -> choice["id"]
-        (id = by_name[String.downcase(choice["name"])]) && id not in taken -> id
-        true -> Key.from_name(choice["name"], taken, "choice")
-      end
-
+    id = choice_id(choice, Enum.map(acc, & &1["id"]), by_name)
     color = choice["color"] || Enum.at(@colors, rem(i, length(@colors)))
 
     cond do
@@ -125,13 +118,28 @@ defmodule Cardbox.Choice do
         {:error,
          "a status's group is one of #{Enum.join(@groups, ", ")}, got: #{inspect(choice["group"])}"}
 
-      status? ->
-        {:ok, Map.merge(choice, %{"id" => id, "color" => color, "group" => choice["group"] || "todo"})}
-
       true ->
-        {:ok, choice |> Map.delete("group") |> Map.merge(%{"id" => id, "color" => color})}
+        {:ok, finish(choice, id, color, status?)}
     end
   end
+
+  # A choice's id: the one it was given, the one of the choice of its name
+  # before, or one made from its name; never one another choice has.
+  defp choice_id(choice, taken, by_name) do
+    previous = by_name[String.downcase(choice["name"])]
+
+    cond do
+      Key.valid?(choice["id"]) and choice["id"] not in taken -> choice["id"]
+      previous && previous not in taken -> previous
+      true -> Key.from_name(choice["name"], taken, "choice")
+    end
+  end
+
+  defp finish(choice, id, color, true),
+    do: Map.merge(choice, %{"id" => id, "color" => color, "group" => choice["group"] || "todo"})
+
+  defp finish(choice, id, color, false),
+    do: choice |> Map.delete("group") |> Map.merge(%{"id" => id, "color" => color})
 
   @doc """
   The choice of a list with this id, or with this name (without case), or nil.

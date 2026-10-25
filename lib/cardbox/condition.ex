@@ -51,8 +51,19 @@ defmodule Cardbox.Condition do
   @doc false
   @spec lower(Query.t(), Collection.t(), map()) :: t()
   def lower(%Query{filter: filter, search: search}, collection, ctx) do
-    simplify({:and, [filter(filter, collection, ctx), search(search, collection)]})
+    {:and, [filter(filter, collection, ctx), search(search, collection)]}
+    |> nobody()
+    |> simplify()
   end
+
+  # "Me" with nobody running the query: nobody is any record's person, so
+  # "is me" is false and "is not me" true, before any database sees it.
+  defp nobody({:cmp, _ref, :eq, :nobody}), do: false
+  defp nobody({:cmp, _ref, :neq, :nobody}), do: true
+  defp nobody({:has, _ref, :nobody}), do: false
+  defp nobody({op, items}) when op in [:and, :or], do: {op, Enum.map(items, &nobody/1)}
+  defp nobody({:not, inner}), do: {:not, nobody(inner)}
+  defp nobody(condition), do: condition
 
   @doc false
   @spec ref(Field.t()) :: ref()
@@ -60,11 +71,16 @@ defmodule Cardbox.Condition do
   def ref(%Field{type: "updated_at"}), do: {:column, :updated_at, :datetime}
   def ref(%Field{type: "created_by"}), do: {:column, :created_by, :choice}
   def ref(%Field{type: "updated_by"}), do: {:column, :updated_by, :choice}
-  def ref(%Field{type: "relation", key: key} = field), do: {:links, {key, Links.side(field)}, :list}
+
+  def ref(%Field{type: "relation", key: key} = field),
+    do: {:links, {key, Links.side(field)}, :list}
+
   def ref(%Field{key: key} = field), do: {:data, key, Type.kind(field)}
 
   defp filter(nil, _collection, _ctx), do: true
-  defp filter({op, filters}, collection, ctx), do: {op, Enum.map(filters, &filter(&1, collection, ctx))}
+
+  defp filter({op, filters}, collection, ctx),
+    do: {op, Enum.map(filters, &filter(&1, collection, ctx))}
 
   defp filter(%Filter{field: key} = filter, collection, ctx) do
     field = Collection.field(collection, key)
@@ -91,27 +107,50 @@ defmodule Cardbox.Condition do
     end
   end
 
-  defp condition(%Filter{op: op, value: value}, field, ref, ctx) do
-    case op do
-      :eq -> {:cmp, ref, :eq, member(value, ctx)}
-      :neq -> {:or, [{:empty, ref}, {:cmp, ref, :neq, member(value, ctx)}]}
-      :in -> {:or, Enum.map(value, &{:cmp, ref, :eq, member(&1, ctx)})}
-      :not_in -> {:or, [{:empty, ref}, {:and, Enum.map(value, &{:cmp, ref, :neq, member(&1, ctx)})}]}
-      :in_group -> {:or, for(%{"id" => id, "group" => g} <- Field.choices(field), g in value, do: {:cmp, ref, :eq, id})}
-      :contains -> {:like, ref, :contains, value}
-      :not_contains -> {:or, [{:empty, ref}, {:not, {:like, ref, :contains, value}}]}
-      :starts_with -> {:like, ref, :starts_with, value}
-      :ends_with -> {:like, ref, :ends_with, value}
-      :gt -> {:cmp, ref, :gt, value}
-      :gte -> {:cmp, ref, :gte, value}
-      :lt -> {:cmp, ref, :lt, value}
-      :lte -> {:cmp, ref, :lte, value}
-      :between -> {:and, [{:cmp, ref, :gte, hd(value)}, {:cmp, ref, :lte, List.last(value)}]}
-    end
+  defp condition(%Filter{op: op, value: value}, field, ref, ctx)
+       when op in [:eq, :neq, :in, :not_in, :in_group],
+       do: member_condition(op, value, field, ref, ctx)
+
+  defp condition(%Filter{op: op, value: value}, _field, ref, _ctx)
+       when op in [:contains, :not_contains, :starts_with, :ends_with],
+       do: text_condition(op, value, ref)
+
+  defp condition(%Filter{op: :between, value: value}, _field, ref, _ctx),
+    do: {:and, [{:cmp, ref, :gte, hd(value)}, {:cmp, ref, :lte, List.last(value)}]}
+
+  defp condition(%Filter{op: op, value: value}, _field, ref, _ctx)
+       when op in [:gt, :gte, :lt, :lte],
+       do: {:cmp, ref, op, value}
+
+  # Conditions on one value among some: a choice, a person.
+  defp member_condition(:eq, value, _field, ref, ctx), do: {:cmp, ref, :eq, member(value, ctx)}
+
+  defp member_condition(:neq, value, _field, ref, ctx),
+    do: {:or, [{:empty, ref}, {:cmp, ref, :neq, member(value, ctx)}]}
+
+  defp member_condition(:in, values, _field, ref, ctx),
+    do: {:or, Enum.map(values, &{:cmp, ref, :eq, member(&1, ctx)})}
+
+  defp member_condition(:not_in, values, _field, ref, ctx),
+    do: {:or, [{:empty, ref}, {:and, Enum.map(values, &{:cmp, ref, :neq, member(&1, ctx)})}]}
+
+  defp member_condition(:in_group, groups, field, ref, _ctx) do
+    {:or,
+     for(
+       %{"id" => id, "group" => g} <- Field.choices(field),
+       g in groups,
+       do: {:cmp, ref, :eq, id}
+     )}
   end
 
-  # "me" is the person who runs the query; with nobody, an id nobody has.
-  defp member("me", %{me: nil}), do: "\u0000nobody"
+  # Conditions on the words of a text, without case.
+  defp text_condition(:not_contains, value, ref),
+    do: {:or, [{:empty, ref}, {:not, {:like, ref, :contains, value}}]}
+
+  defp text_condition(mode, value, ref), do: {:like, ref, mode, value}
+
+  # "me" is the person who runs the query; with nobody, :nobody (nobody/1).
+  defp member("me", %{me: nil}), do: :nobody
   defp member("me", %{me: me}), do: me
   defp member(value, _ctx), do: value
 
@@ -185,7 +224,8 @@ defmodule Cardbox.Condition do
   defp search(nil, _collection), do: true
 
   defp search(text, _collection) do
-    {:and, for(word <- Search.words(text), do: {:like, {:column, :search_text, :text}, :contains, word})}
+    {:and,
+     for(word <- Search.words(text), do: {:like, {:column, :search_text, :text}, :contains, word})}
   end
 
   @doc false
@@ -284,14 +324,19 @@ defmodule Cardbox.Condition do
     end
   end
 
-  defp compare(op, %DateTime{} = actual, expected), do: order(op, DateTime.compare(actual, to_datetime(expected)))
-  defp compare(op, actual, %DateTime{} = expected), do: order(op, DateTime.compare(to_datetime(actual), expected))
+  defp compare(op, %DateTime{} = actual, expected),
+    do: order(op, DateTime.compare(actual, to_datetime(expected)))
+
+  defp compare(op, actual, %DateTime{} = expected),
+    do: order(op, DateTime.compare(to_datetime(actual), expected))
 
   defp compare(op, actual, expected) when is_number(actual) and is_number(expected),
-    do: order(op, if(actual == expected, do: :eq, else: if(actual < expected, do: :lt, else: :gt)))
+    do:
+      order(op, if(actual == expected, do: :eq, else: if(actual < expected, do: :lt, else: :gt)))
 
   defp compare(op, actual, expected) when is_binary(actual) and is_binary(expected),
-    do: order(op, if(actual == expected, do: :eq, else: if(actual < expected, do: :lt, else: :gt)))
+    do:
+      order(op, if(actual == expected, do: :eq, else: if(actual < expected, do: :lt, else: :gt)))
 
   defp compare(op, actual, expected), do: order(op, if(actual == expected, do: :eq, else: :neq))
 

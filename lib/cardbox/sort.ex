@@ -31,7 +31,8 @@ defmodule Cardbox.Sort do
 
   @doc false
   @spec to_wire(t()) :: map()
-  def to_wire(%__MODULE__{field: field, dir: dir}), do: %{"field" => field, "dir" => Atom.to_string(dir)}
+  def to_wire(%__MODULE__{field: field, dir: dir}),
+    do: %{"field" => field, "dir" => Atom.to_string(dir)}
 
   defp field(ref, collection) do
     case (is_binary(ref) or is_atom(ref)) && Collection.field(collection, ref) do

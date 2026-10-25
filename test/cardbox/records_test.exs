@@ -16,7 +16,9 @@ defmodule Cardbox.RecordsTest do
             "Due" => ~D[2026-11-02],
             "Tags" => ["bug", "UI"],
             "Owner" => 7
-          }, actor: %{id: 42})
+          },
+          actor: %{id: 42}
+        )
 
       assert record.data == %{
                "title" => "Ship it",

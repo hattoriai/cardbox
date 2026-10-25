@@ -142,7 +142,7 @@ defmodule Cardbox.Collections do
        when not is_map_key(options, "reverse_of") do
     target_id = options["collection_id"]
     target = if target_id == collection.id, do: collection, else: get(mod, target_id)
-    name = free_name(target, collection.name)
+    name = free_name(target, options["reverse_name"] || collection.name)
     attrs = %{"name" => name, "type" => "relation", "options" => %{"collection_id" => collection.id}, "__reverse_of" => field.id}
 
     case do_add_field(mod, repo, target, attrs) do
@@ -218,7 +218,7 @@ defmodule Cardbox.Collections do
   # its records have.
   defp new_options(_mod, _repo, _collection, %Field{type: "relation"} = field, "relation", given) when given != nil do
     given = stringify(given)
-    kept = Map.take(field.options, ~w(collection_id two_way reverse_of))
+    kept = Map.take(field.options, ~w(collection_id two_way reverse_name reverse_of))
 
     if Map.take(given, ~w(collection_id two_way)) |> Enum.all?(fn {k, v} -> kept[k] == v end),
       do: options("relation", Map.merge(given, kept), field.options),

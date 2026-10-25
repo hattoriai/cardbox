@@ -14,7 +14,7 @@ defmodule Cardbox.Type do
   | `status` | one of the choices, each of a group (to do, doing, done) | `choices` |
   | `person` | the id of a person or an agent of your app | `multiple`: several |
   | `url`, `email`, `phone` | a text of that form | |
-  | `relation` | records of a collection | `collection_id` (required); `limit`: at most so many; `two_way`: the other collection shows the links too |
+  | `relation` | records of a collection | `collection_id` (required); `limit`: at most so many; `two_way`: the other collection shows the links too, in a field named `reverse_name` (its own name unless given) |
   | `created_at`, `updated_at` | when the record was made, changed | read-only |
   | `created_by`, `updated_by` | who made it, changed it last | read-only |
 
@@ -127,7 +127,7 @@ defmodule Cardbox.Type do
     "multi_select" => ~w(choices),
     "status" => ~w(choices),
     "person" => ~w(multiple),
-    "relation" => ~w(collection_id limit two_way reverse_of)
+    "relation" => ~w(collection_id limit two_way reverse_name reverse_of)
   }
 
   defp known_options(type, options) do

@@ -116,6 +116,11 @@ defmodule CardboxDev.Seeds do
         ]
       })
 
+    # Projects that wait on others: a relation of the collection to itself,
+    # whose other side is "Blocks".
+    {:ok, projects} =
+      Box.add_field(projects, %{name: "Blocked by", type: "relation", options: %{collection_id: projects.id, two_way: true, reverse_name: "Blocks"}})
+
     {:ok, [kobo, tsuru, lume, ama, sora]} =
       Box.insert_all(clients, [
         %{"Name" => "Kobo Press", "Industry" => "Publishing", "Contact" => "mika@kobo.example", "Site" => "https://kobo.example"},
@@ -140,7 +145,7 @@ defmodule CardboxDev.Seeds do
       {"Kobo author portraits", "Next up", "Low", "ines", 30, ~w(Brand), 6_000, kobo, false}
     ]
 
-    {:ok, _} =
+    {:ok, inserted} =
       Box.insert_all(
         projects,
         for {title, status, priority, owner, due, tags, budget, client, done} <- rows do
@@ -159,12 +164,26 @@ defmodule CardboxDev.Seeds do
         actor: "ada"
       )
 
+    by_title = Map.new(inserted, &{&1.data["title"], &1})
+
+    for {title, blockers} <- [
+          {"Kobo reading app", ["Kobo autumn catalogue", "Studio typeface, weights"]},
+          {"Ama audio guide", ["Ama exhibition identity"]},
+          {"Lume showroom signage", ["Lume product photography"]},
+          {"Kobo author portraits", ["Kobo autumn catalogue"]},
+          {"Sora packaging", ["Sora tea house site"]},
+          {"Tsuru booking site", ["Studio typeface, weights"]}
+        ] do
+      {:ok, _} = Box.update(projects, by_title[title], %{"Blocked by" => Enum.map(blockers, &by_title[&1].id)}, actor: "ada")
+    end
+
     clients = Box.get_collection!(clients.id)
 
     for attrs <- [
-          %{name: "All projects", type: "table", options: %{columns: ~w(title status priority owner due tags budget client signed_off updated), widths: %{"title" => 260}}},
+          %{name: "All projects", type: "table", options: %{columns: ~w(title status priority owner due tags budget client blocked_by signed_off updated), hidden: ~w(blocks), widths: %{"title" => 260}}},
           %{name: "Board", type: "board", options: %{group_by: "status"}},
           %{name: "My work", type: "table", query: %{"filter" => %{"and" => [%{"field" => "owner", "op" => "eq", "value" => "me"}, %{"field" => "status", "op" => "in_group", "value" => ["todo", "doing"]}]}, "sort" => [%{"field" => "due"}]}, options: %{hidden: ~w(owner updated)}},
+          %{name: "Dependencies", type: "canvas", options: %{edges: "blocked_by"}},
           %{name: "Due soon", type: "table", query: %{"filter" => %{"and" => [%{"field" => "due", "op" => "within", "value" => "next_month"}, %{"field" => "status", "op" => "in_group", "value" => ["todo", "doing"]}]}, "sort" => [%{"field" => "due"}]}}
         ] do
       {:ok, _} = Box.save_view(projects, attrs)
@@ -201,8 +220,10 @@ defmodule CardboxDev.Layouts do
         />
         <link rel="stylesheet" href="/vendor/masu/masu.css" />
         <link rel="stylesheet" href="/vendor/narabe/narabe.css" />
+        <link rel="stylesheet" href="/vendor/hakushi/hakushi.css" />
         <link :if={@sumi} rel="stylesheet" href="/vendor/masu/masu-sumi.css" />
         <link :if={@sumi} rel="stylesheet" href="/vendor/narabe/narabe-sumi.css" />
+        <link :if={@sumi} rel="stylesheet" href="/vendor/hakushi/hakushi-sumi.css" />
         <style>
           :root { color-scheme: light; --a-accent: #2e6b5c; --a-bg: #faf9f7; --a-side: #f3f1ed; --a-line: #e7e3dc; --a-ink: #1f1d1a; --a-muted: #79736a; --a-card: #fff; --a-col: #f1efea; }
           [data-theme="dark"] { color-scheme: dark; --a-bg: #17161a; --a-side: #1e1d21; --a-line: #2c2a30; --a-ink: #eceae6; --a-muted: #9c968e; --a-accent: #6fbfa5; --a-card: #222126; --a-col: #1c1b1f; }
@@ -257,6 +278,12 @@ defmodule CardboxDev.Layouts do
 
           [data-theme="dark"] .cardbox-choice { background: color-mix(in oklab, var(--fg) 55%, #17161a); color: color-mix(in oklab, var(--bg) 90%, white); }
 
+          /* The canvas: a record's card, the same as on the board. */
+          .stage > .hakushi { flex: 1; min-height: 0; border: 1px solid var(--a-line); border-radius: 10px; }
+          .cardbox-node { position: relative; width: 15.5rem; }
+          .cardbox-node .hakushi-handle { opacity: 0; }
+          .hakushi-node:hover .hakushi-handle, .hakushi[data-ui-connecting] .hakushi-handle { opacity: 1; }
+
           /* The board: a column for each choice of the status. */
           .board-wrap { flex: 1; min-height: 0; overflow: auto; }
           .board-wrap .narabe-board { gap: 0.875rem; align-items: flex-start; }
@@ -275,7 +302,8 @@ defmodule CardboxDev.Layouts do
               "phoenix": "/vendor/phoenix/phoenix.mjs",
               "phoenix_live_view": "/vendor/phoenix_live_view/phoenix_live_view.esm.js",
               "masu": "/vendor/masu/masu.esm.js",
-              "narabe": "/vendor/narabe/narabe.esm.js"
+              "narabe": "/vendor/narabe/narabe.esm.js",
+              "hakushi": "/vendor/hakushi/hakushi.esm.js"
             }
           }
         </script>
@@ -284,9 +312,10 @@ defmodule CardboxDev.Layouts do
           import { LiveSocket } from "phoenix_live_view"
           import { Masu } from "masu"
           import { Narabe } from "narabe"
+          import { Hakushi } from "hakushi"
 
           const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
-          const liveSocket = new LiveSocket("/live", Socket, { hooks: { Masu, Narabe }, params: { _csrf_token: csrfToken } })
+          const liveSocket = new LiveSocket("/live", Socket, { hooks: { Masu, Narabe, Hakushi }, params: { _csrf_token: csrfToken } })
           liveSocket.connect()
           window.liveSocket = liveSocket
         </script>
@@ -347,6 +376,7 @@ defmodule CardboxDev.Layouts do
         "building" -> "M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 9h2a2 2 0 0 1 2 2v10M8 7h4M8 11h4M8 15h4M3 21h18"
         "table" -> "M4 5h16v14H4zM4 10h16M10 5v14"
         "board" -> "M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v11h-4z"
+        "canvas" -> "M5 6h5v4H5zM14 14h5v4h-5zM10 8h2a2 2 0 0 1 2 2v4"
         _ -> "M4 6h16M4 12h16M4 18h16"
       end
 
@@ -410,6 +440,11 @@ defmodule CardboxDev.CollectionLive do
     assign(socket, records: records, count: length(records), group_field: field)
   end
 
+  defp load(%{assigns: %{view: %{type: "canvas"} = view, collection: collection, me: me}} = socket) do
+    {:ok, records} = Box.list(collection, view, me: me.id)
+    assign(socket, records: records, count: length(records))
+  end
+
   defp load(%{assigns: %{view: view, collection: collection, me: me}} = socket) do
     {:ok, count} = Box.count(collection, view, me: me.id)
     assign(socket, count: count, records: [])
@@ -429,7 +464,7 @@ defmodule CardboxDev.CollectionLive do
       <p :if={@collection.description} class="top" style="padding-top: 0.25rem; color: var(--a-muted); font-size: 0.8125rem;">{@collection.description}</p>
       <nav class="tabs">
         <.link :for={v <- @views} patch={"/c/#{@collection.id}" <> qs(@query, %{"view" => to_string(v.id)})} aria-current={@view && v.id == @view.id && "page"}>
-          {icon(if v.type == "board", do: "board", else: "table")} {v.name}
+          {icon(v.type)} {v.name}
         </.link>
       </nav>
       <div class="bar">
@@ -438,6 +473,13 @@ defmodule CardboxDev.CollectionLive do
         <span class="count">{@count} {if @count == 1, do: "record", else: "records"}</span>
       </div>
       <div class="stage">
+        <%= if @view && @view.type == "canvas" do %>
+          <Cardbox.Hakushi.canvas cardbox={Box} collection={@collection} view={@view} records={@records} actor={@me.id}>
+            <:record :let={record}>
+              <.card record={record} collection={@collection} />
+            </:record>
+          </Cardbox.Hakushi.canvas>
+        <% end %>
         <%= if @view && @view.type == "board" do %>
           <div class="board-wrap">
             <.board
@@ -458,7 +500,8 @@ defmodule CardboxDev.CollectionLive do
               </:card>
             </.board>
           </div>
-        <% else %>
+        <% end %>
+        <%= if @view && @view.type == "table" do %>
           <Cardbox.Masu.table
             cardbox={Box}
             collection={@collection}
@@ -572,6 +615,13 @@ defmodule CardboxDev.CollectionLive do
   end
 
   @impl true
+  def handle_info({:cardbox, %Cardbox.Event{type: type, view: saved}}, socket) when type in [:view_saved, :view_deleted] do
+    views = Box.list_views(socket.assigns.collection)
+    view = socket.assigns.view && Enum.find(views, &(&1.id == socket.assigns.view.id))
+    view = if saved && view && saved.id == view.id, do: saved, else: view
+    {:noreply, socket |> assign(views: views, view: view || List.first(views)) |> load()}
+  end
+
   def handle_info({:cardbox, event}, socket) do
     if socket.assigns.view, do: Cardbox.Masu.relay(event, "grid-#{socket.assigns.view.id}")
     {:noreply, load(socket)}
@@ -625,6 +675,7 @@ defmodule CardboxDev.Endpoint do
   plug(Plug.Static, at: "/vendor/phoenix_live_view", from: {:phoenix_live_view, "priv/static"})
   plug(Plug.Static, at: "/vendor/masu", from: {:masu, "priv/static"})
   plug(Plug.Static, at: "/vendor/narabe", from: {:narabe, "priv/static"})
+  plug(Plug.Static, at: "/vendor/hakushi", from: {:hakushi, "priv/static"})
 
   plug(Plug.Parsers, parsers: [:urlencoded, :json], pass: ["*/*"], json_decoder: JSON)
   plug(Plug.Session, @session)

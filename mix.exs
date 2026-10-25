@@ -60,6 +60,7 @@ defmodule Cardbox.MixProject do
       # The views, each an optional binding (Cardbox.Masu, ...): the app
       # has the libraries of the views it shows.
       {:masu, "~> 0.7", optional: true},
+      {:hakushi, "~> 0.6", optional: true},
       # The development app (dev.exs).
       {:bandit, "~> 1.5", only: :dev},
       {:stream_data, "~> 1.1", only: :test}

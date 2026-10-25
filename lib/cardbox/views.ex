@@ -26,12 +26,12 @@ defmodule Cardbox.Views do
     attrs = Collections.stringify(attrs)
 
     with :ok <- Store.allow(mod, opts, :save_view, collection),
-         {:ok, attrs} <- check(collection, attrs, attrs["type"] || "table") do
+         {:ok, attrs} <- check(mod, collection, attrs, attrs["type"] || "table") do
       views = Collections.views_of(Store.repo(mod), collection.id)
       position = Collections.position(views, :last)
 
       %View{collection_id: collection.id, position: position}
-      |> View.changeset(attrs)
+      |> View.changeset(attrs, mod.__cardbox__(:views))
       |> Store.repo(mod).insert()
       |> broadcast(mod, collection, opts)
     end
@@ -43,12 +43,13 @@ defmodule Cardbox.Views do
     with :ok <- Store.allow(mod, opts, :save_view, collection),
          {:ok, attrs} <-
            check(
+             mod,
              collection,
              Map.merge(%{"query" => view.query, "options" => view.options}, attrs),
              attrs["type"] || view.type
            ) do
       view
-      |> View.changeset(attrs)
+      |> View.changeset(attrs, mod.__cardbox__(:views))
       |> Store.repo(mod).update()
       |> broadcast(mod, collection, opts)
     end
@@ -80,9 +81,9 @@ defmodule Cardbox.Views do
     end
   end
 
-  defp check(collection, attrs, type) do
+  defp check(mod, collection, attrs, type) do
     with {:ok, query} <- check_query(collection, attrs["query"]),
-         {:ok, options} <- check_options(collection, type, attrs["options"] || %{}) do
+         {:ok, options} <- check_options(mod, collection, type, attrs["options"] || %{}) do
       {:ok, Map.merge(attrs, %{"query" => query, "options" => options})}
     end
   end
@@ -94,13 +95,18 @@ defmodule Cardbox.Views do
     end
   end
 
-  defp check_options(_collection, _type, options) when not is_map(options),
+  defp check_options(_mod, _collection, _type, options) when not is_map(options),
     do: {:error, Error.invalid([{"options", "are a map, got: #{inspect(options)}"}])}
 
-  defp check_options(collection, type, options) do
+  defp check_options(mod, collection, type, options) do
     options = Collections.stringify(options)
 
-    case options_of(type, collection, options) do
+    checked =
+      if type in View.types(),
+        do: options_of(type, collection, options),
+        else: mod.check_view(type, options, collection)
+
+    case checked do
       {:ok, options} -> {:ok, options}
       {:error, message} -> {:error, Error.invalid([{"options", message}])}
     end
@@ -111,7 +117,10 @@ defmodule Cardbox.Views do
   defp options_of("board", collection, options), do: board(collection, options)
   defp options_of("list", collection, options), do: keys(collection, options, ~w(fields))
   defp options_of("calendar", collection, options), do: calendar(collection, options)
-  defp options_of("chart", _collection, options), do: chart(options)
+
+  defp options_of("chart", collection, options),
+    do: Cardbox.Chart.check_options(collection, options)
+
   defp options_of("canvas", collection, options), do: canvas(collection, options)
   defp options_of(_type, _collection, options), do: {:ok, options}
 
@@ -167,14 +176,6 @@ defmodule Cardbox.Views do
              &(Type.kind(&1) in [:date, :datetime])
            ) do
       {:ok, Map.put(options, "date_field", field.key)}
-    end
-  end
-
-  defp chart(options) do
-    case options["spec"] do
-      nil -> {:ok, options}
-      %{} -> {:ok, options}
-      other -> {:error, "a chart's spec is a map (Fude.Spec.dump/1), got: #{inspect(other)}"}
     end
   end
 

@@ -61,6 +61,8 @@ defmodule Cardbox.MixProject do
       # has the libraries of the views it shows.
       {:masu, "~> 0.7", optional: true},
       {:hakushi, "~> 0.6", optional: true},
+      {:koyomi, "~> 0.2", optional: true},
+      {:fude, "~> 0.7", optional: true},
       # The development app (dev.exs).
       {:bandit, "~> 1.5", only: :dev},
       {:stream_data, "~> 1.1", only: :test}
@@ -106,7 +108,7 @@ defmodule Cardbox.MixProject do
         Types: [Cardbox.Type, Cardbox.Choice],
         Queries: [Cardbox.Query, Cardbox.Filter, Cardbox.Sort],
         Changes: [Cardbox.Event, Cardbox.Error],
-        "Drawn by": [Cardbox.Masu, Cardbox.Hakushi],
+        "Drawn by": [Cardbox.Masu, Cardbox.Koyomi, Cardbox.Fude, Cardbox.Hakushi],
         Databases: [Cardbox.SQL]
       ]
     ]

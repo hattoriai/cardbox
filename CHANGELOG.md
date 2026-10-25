@@ -36,5 +36,15 @@ and Cardbox follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   choices, people by name and relations by title.
 - `Cardbox.Hakushi`: a collection as a Hakushi canvas, its edges a
   relation's links, its places kept in the view.
+- `Cardbox.Koyomi`: a collection as a Koyomi calendar, each record on the
+  day of the view's date field, toned by its status's group, the days read
+  a month or a few at a time.
+- `Cardbox.Fude`: a collection as a Fude chart (bar, line, area, pie,
+  donut, a number), grouped and aggregated in the database through the
+  view's query, choices in their order and colours.
+- `group/3`: records grouped by fields (dates by day, month or year) and
+  counted or aggregated in the database, on PostgreSQL and SQLite.
+- Views of an app's own types (`use Cardbox, views: [...]`), their options
+  checked by `c:Cardbox.check_view/3`.
 - `Cardbox.describe/1`: a collection as an agent reads it.
 - The development app (`mix dev`).

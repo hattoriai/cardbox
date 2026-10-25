@@ -26,8 +26,8 @@ fields by key and choices by id.
 | `table` | Masu (`Cardbox.Masu`) | `columns` (in order), `hidden`, `widths` |
 | `board` | Narabe | `group_by` (a select, a status, a person or a checkbox), `hidden_groups`, `card_fields` |
 | `list` | Narabe | `fields` |
-| `calendar` | Koyomi | `date_field` |
-| `chart` | Fude | `spec`, a `Fude.Spec` map |
+| `calendar` | Koyomi (`Cardbox.Koyomi`) | `date_field` |
+| `chart` | Fude (`Cardbox.Fude`) | `kind`, `x` (and its `unit`), `y`, `color`, `title` |
 | `canvas` | Hakushi (`Cardbox.Hakushi`) | `edges` (a relation of the collection to itself), `layout` |
 
 ## A table
@@ -43,6 +43,62 @@ collection). A cell edits as its field takes values; a write goes through
 your module, with `expect:` the value the person saw, so a value someone
 changed meanwhile is not overwritten.
 
+Each view is drawn by a binding that compiles only when your app has its
+library: an app with Masu alone has tables, and nothing of Koyomi, Fude
+or Hakushi. A view is data, so an app saves and queries views of any
+type, whatever it draws.
+
+## A calendar
+
+```heex
+<Cardbox.Koyomi.calendar id="due" view={@view} on_change="day" months={2} />
+```
+
+```elixir
+def handle_event("koyomi:days", %{"id" => "due"} = params, socket),
+  do: Cardbox.Koyomi.handle_days(socket, params, Box, socket.assigns.tasks, socket.assigns.view, me: @user)
+
+def handle_event("day", %{"value" => day}, socket) do
+  {:ok, records} = Cardbox.Koyomi.on_day(Box, socket.assigns.tasks, socket.assigns.view, day)
+  {:noreply, assign(socket, day_records: records)}
+end
+```
+
+Each record is on the day of the view's `date_field`, a mark for each,
+toned by its status's group (to do, doing, done), and its title on the
+day for screen readers and the hover. The calendar asks for the days it
+shows, and the database reads only the records of those days, through the
+view's query. When records change, `Koyomi.Live.refresh_days/2` asks the
+calendar for its days again.
+
+## A chart
+
+```elixir
+Box.save_view(projects, %{
+  name: "Budget by status",
+  type: "chart",
+  options: %{kind: "bar", x: "Status", y: %{sum: "Budget"}, color: "Priority"}
+})
+```
+
+```heex
+<Cardbox.Fude.chart id="budget" cardbox={Box} collection={@projects} view={@view} people={@people} />
+```
+
+A chart is `bar`, `line`, `area`, `pie`, `donut` or `number`; `x` is the
+field of its groups (a date takes a `unit`: `day`, `month` or `year`),
+`y` is `count` or the `sum`, `mean`, `min` or `max` of a number field,
+and `color` a second field to split by. One `GROUP BY` through the view's
+query reads the groups, not the records. Choices keep their order and
+their colours, and a currency is formatted in its currency.
+
+`group/3` gives the same groups to your own code: the counts of a board's
+columns, a total under a table.
+
+```elixir
+{:ok, rows} = Box.group(projects, view, by: [{"Due", :month}, "Status"], value: {:sum, "Budget"})
+```
+
 ## A canvas
 
 ```heex
@@ -57,6 +113,32 @@ by" canvas points from what blocks to what waits. Drawing an edge links
 two records; deleting one unlinks them; moving a node keeps its place in
 the view's `layout`, for everyone. With no places yet, the canvas lays
 the records out along their links as it opens.
+
+## Views of your own
+
+A timeline, a map, a gallery: an app adds types of its own, and draws
+them as it likes.
+
+```elixir
+defmodule MyApp.Cardbox do
+  use Cardbox, repo: MyApp.Repo, views: ["timeline"]
+
+  @impl Cardbox
+  def check_view("timeline", options, collection) do
+    case Cardbox.Collection.field(collection, options["start"]) do
+      %Cardbox.Field{type: "date", key: key} -> {:ok, Map.put(options, "start", key)}
+      _ -> {:error, "a timeline starts at a date field"}
+    end
+  end
+
+  def check_view(_type, options, _collection), do: {:ok, options}
+end
+```
+
+A view of your type is saved, listed and shared as any; `check_view/3`
+checks its options when it is saved (by key, so a rename changes
+nothing), and `list/3` of it gives its records, in its order. Your
+component draws them.
 
 ## When fields change
 

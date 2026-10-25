@@ -61,7 +61,7 @@ defmodule Cardbox.MixProject do
       # has the libraries of the views it shows.
       {:masu, "~> 0.7", optional: true},
       {:hakushi, "~> 0.6", optional: true},
-      {:koyomi, "~> 0.2", optional: true},
+      {:koyomi, "~> 0.2.1", optional: true},
       {:fude, "~> 0.7", optional: true},
       # The development app (dev.exs).
       {:bandit, "~> 1.5", only: :dev},

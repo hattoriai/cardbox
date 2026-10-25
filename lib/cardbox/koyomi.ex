@@ -25,7 +25,8 @@ if Code.ensure_loaded?(Koyomi.Live) do
     and shown on hover, has the records' titles.
 
     When records change (`Cardbox.Event`), `Koyomi.Live.refresh_days/2`
-    asks the calendar for its days again.
+    asks the calendar for its days again (Koyomi 0.2.1 and later, which
+    Cardbox requires: before it, a refresh emptied the calendar).
     """
 
     use Phoenix.Component

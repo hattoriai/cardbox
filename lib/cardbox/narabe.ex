@@ -304,6 +304,8 @@ if Code.ensure_loaded?(Narabe.Components) do
     defp text(%Field{type: "person"}, id, people), do: Map.get(people, id, id)
     defp text(%Field{type: "checkbox"} = field, true, _people), do: field.name
 
+    defp text(%Field{type: "file"}, files, _people), do: Enum.map_join(files, ", ", & &1["name"])
+
     defp text(%Field{type: "relation"}, ids, _people),
       do: "#{length(ids)} linked"
 

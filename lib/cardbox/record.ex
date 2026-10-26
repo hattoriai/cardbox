@@ -77,6 +77,8 @@ defmodule Cardbox.Record do
         case field.type do
           type when type in ~w(created_at updated_at) -> DateTime.to_iso8601(value(record, field))
           type when type in ~w(created_by updated_by) -> value(record, field)
+          # Where each file is and what it is, not only its name.
+          "file" -> Map.get(record.data, field.key)
           _ -> Type.plain(field, Map.get(record.data, field.key))
         end
 

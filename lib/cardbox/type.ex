@@ -14,6 +14,7 @@ defmodule Cardbox.Type do
   | `status` | one of the choices, each of a group (to do, doing, done) | `choices` |
   | `person` | the id of a person or an agent of your app | `multiple`: several |
   | `url`, `email`, `phone` | a text of that form | |
+  | `file` | files your app stored: each its `key`, `url`, `name`, `content_type`, `bytes` (and a `preview`) | |
   | `relation` | records of a collection | `collection_id` (required); `limit`: at most so many; `two_way`: the other collection shows the links too, in a field named `reverse_name` (its own name unless given) |
   | `created_at`, `updated_at` | when the record was made, changed | read-only |
   | `created_by`, `updated_by` | who made it, changed it last | read-only |
@@ -25,7 +26,9 @@ defmodule Cardbox.Type do
   list and an unticked checkbox are kept as nothing, so "is empty" is one
   question whatever the type. A day is `"2026-10-25"`, a moment
   `"2026-10-25T14:30:00Z"`, both of which sort as text; a choice is its id;
-  a relation a list of record ids.
+  a relation a list of record ids; a file a list of maps, each where your
+  app keeps the file (Cardbox keeps no bytes: store them with Storehouse,
+  say, and give the field what it returns).
 
   The four read-only types are the record's own columns, and are not in
   its values.
@@ -40,7 +43,7 @@ defmodule Cardbox.Type do
 
   alias Cardbox.Choice
 
-  @types ~w(text number checkbox date select multi_select status person url email phone relation created_at updated_at created_by updated_by)
+  @types ~w(text number checkbox date select multi_select status person url email phone file relation created_at updated_at created_by updated_by)
   @system ~w(created_at updated_at created_by updated_by)
   @formats ~w(number integer percent currency)
 
@@ -51,6 +54,7 @@ defmodule Cardbox.Type do
   @list_ops ~w(has_any has_all has_none is_empty is_not_empty)a
 
   @max_text 100_000
+  @max_files 20
 
   # The kinds of the types whose kind is not in their options.
   @kinds Map.merge(
@@ -62,6 +66,7 @@ defmodule Cardbox.Type do
              "status" => :choice,
              "multi_select" => :list,
              "relation" => :list,
+             "file" => :list,
              "created_at" => :datetime,
              "updated_at" => :datetime,
              "created_by" => :choice,
@@ -106,6 +111,7 @@ defmodule Cardbox.Type do
   defp operators(kind, _type) when kind in [:date, :datetime], do: @date_ops
   defp operators(:choice, "status"), do: @choice_ops ++ [:in_group]
   defp operators(:choice, _type), do: @choice_ops
+  defp operators(:list, "file"), do: [:is_empty, :is_not_empty]
   defp operators(:list, _type), do: @list_ops
 
   @doc "Whether a field sorts: every field but those of several values."
@@ -351,6 +357,15 @@ defmodule Cardbox.Type do
     end
   end
 
+  defp do_cast("file", _field, value, _opts) do
+    with {:ok, values} <- list(value),
+         {:ok, files} <- map_ok(values, &file/1) do
+      if length(files) > @max_files,
+        do: {:error, "holds at most #{@max_files} files"},
+        else: {:ok, Enum.uniq_by(files, & &1["key"])}
+    end
+  end
+
   defp whole(number, _value) when is_integer(number), do: {:ok, number}
   defp whole(number, _value) when number == trunc(number), do: {:ok, trunc(number)}
   defp whole(_number, value), do: {:error, "is a whole number, got: #{inspect(value)}"}
@@ -463,6 +478,94 @@ defmodule Cardbox.Type do
   defp person(%{"id" => id}), do: person(id)
   defp person(value), do: {:error, "is the id of a person, got: #{inspect(value)}"}
 
+  # A file as your app stored it: where it is and what it is, checked, with
+  # nothing kept that a page could not show safely.
+  defp file(%{__struct__: _} = file), do: file |> Map.from_struct() |> file()
+
+  defp file(%{} = file) do
+    file = Map.new(file, fn {k, v} -> {to_string(k), v} end)
+    content_type = file["content_type"] || file["contentType"] || "application/octet-stream"
+
+    with {:ok, key} <- file_text(file["key"], "key", 1024),
+         {:ok, url} <- file_url(file["url"], "url"),
+         {:ok, name} <- file_name(file["name"]),
+         {:ok, content_type} <- content_type(content_type),
+         {:ok, bytes} <- file_bytes(file["bytes"]),
+         {:ok, preview} <-
+           if(file["preview"], do: file_url(file["preview"], "preview"), else: {:ok, nil}) do
+      {:ok,
+       %{"key" => key, "url" => url, "name" => name, "content_type" => content_type}
+       |> put_present("bytes", bytes)
+       |> put_present("preview", preview)}
+    end
+  end
+
+  defp file(value),
+    do: {:error, "is a file: a map with its key, url and name, got: #{inspect(value)}"}
+
+  defp file_text(value, what, max) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      value == "" -> {:error, "is a file whose #{what} is not empty"}
+      byte_size(value) > max -> {:error, "is a file whose #{what} is at most #{max} bytes"}
+      not String.valid?(value) -> {:error, "is a file whose #{what} is valid UTF-8"}
+      true -> {:ok, value}
+    end
+  end
+
+  defp file_text(value, what, _max),
+    do: {:error, "is a file with its #{what}, a text, got: #{inspect(value)}"}
+
+  # A path of your app ("/uploads/..."), or an address on the web.
+  defp file_url(value, what) do
+    with {:ok, url} <- file_text(value, what, 2048) do
+      uri = URI.parse(url)
+
+      cond do
+        String.starts_with?(url, "/") and not String.starts_with?(url, "//") and
+            not String.contains?(url, "\\") ->
+          {:ok, url}
+
+        uri.scheme in ~w(http https) and is_binary(uri.host) and uri.host != "" ->
+          {:ok, url}
+
+        true ->
+          {:error,
+           "is a file whose #{what} is a path (/...) or starts with https://, got: #{inspect(url)}"}
+      end
+    end
+  end
+
+  defp file_name(value) do
+    with {:ok, name} <- file_text(value, "name", 1024) do
+      case name |> String.replace(~r/[\p{Cc}\p{Cf}]/u, "") |> String.slice(0, 200) do
+        "" -> {:error, "is a file whose name is not empty"}
+        name -> {:ok, name}
+      end
+    end
+  end
+
+  defp content_type(value) when is_binary(value) do
+    if value =~ ~r"^[a-zA-Z0-9.+-]{1,127}/[a-zA-Z0-9.+-]{1,127}$",
+      do: {:ok, String.downcase(value)},
+      else:
+        {:error,
+         "is a file whose content_type is a media type (\"application/pdf\"), got: #{inspect(value)}"}
+  end
+
+  defp content_type(value),
+    do: {:error, "is a file whose content_type is a media type, got: #{inspect(value)}"}
+
+  defp file_bytes(nil), do: {:ok, nil}
+  defp file_bytes(bytes) when is_integer(bytes) and bytes >= 0, do: {:ok, bytes}
+
+  defp file_bytes(bytes),
+    do: {:error, "is a file whose bytes are a whole number, got: #{inspect(bytes)}"}
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
+
   defp record_id(id) when is_integer(id) and id > 0, do: {:ok, id}
 
   defp record_id(id) when is_binary(id) do
@@ -527,6 +630,8 @@ defmodule Cardbox.Type do
       nil -> nil
     end
   end
+
+  def plain(%{type: "file"}, files), do: Enum.map(files, & &1["name"])
 
   def plain(%{type: "multi_select", options: options}, ids) do
     for id <- ids, %{"name" => name} <- [Choice.find(options["choices"], id)], do: name

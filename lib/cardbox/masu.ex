@@ -42,6 +42,7 @@ if Code.ensure_loaded?(Masu.Source) do
     | select, status | `:enum` of the choices' names, in their order |
     | person | `:enum` of the people's names, or `:text` of ids |
     | multi-select, relation, several people | the names or titles, read-only |
+    | file | the files' names, each a link to it, read-only |
     | created at, updated at, by | read-only |
 
     A cell takes what a person types as Cardbox takes a value: a choice by
@@ -49,7 +50,8 @@ if Code.ensure_loaded?(Masu.Source) do
 
     `table/1` draws chips as `<span class="cardbox-choice" data-color="blue">`
     (Erabi's nine colors), links as `<span class="cardbox-link">` and people
-    as `<span class="cardbox-person">`, for your style sheet.
+    as `<span class="cardbox-person">` and files as `<a class="cardbox-file">`
+    (with the file's `data-type`), for your style sheet.
     """
 
     use Phoenix.Component
@@ -130,7 +132,7 @@ if Code.ensure_loaded?(Masu.Source) do
     end
 
     defp rich?(%Field{type: type}),
-      do: type in ~w(select status multi_select person relation created_by updated_by)
+      do: type in ~w(select status multi_select person relation file created_by updated_by)
 
     defp rich?(_field), do: false
 
@@ -159,6 +161,21 @@ if Code.ensure_loaded?(Masu.Source) do
 
       ~H"""
       <span :for={title <- @titles} class="cardbox-link">{title}</span>
+      """
+    end
+
+    defp cell(%{field: %Field{type: "file"}} = assigns) do
+      assigns = assign(assigns, :files, Map.get(assigns.row["__data"], assigns.field.key) || [])
+
+      ~H"""
+      <a
+        :for={f <- @files}
+        class="cardbox-file"
+        href={f["url"]}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-type={f["content_type"]}
+      >{f["name"]}</a>
       """
     end
 

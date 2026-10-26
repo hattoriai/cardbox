@@ -7,6 +7,17 @@ and Cardbox follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A `file` field: files your app stored (Storehouse's, say), each kept as
+  where it is and what it is (`key`, `url`, `name`, `content_type`,
+  `bytes`, `preview`), at most 20 to a value. Its `url` and `preview` are a
+  path of your app or an `https://` address, its name loses control and
+  direction characters. It filters by being empty or not, its files'
+  names are in the search text, `Cardbox.Record.to_map/2` gives each file
+  whole, a table shows each as a link (`a.cardbox-file`), and a board
+  card by name.
+
 ### Fixed
 
 - `Cardbox.Masu`: a grid's `"me"` is its actor by `c:Cardbox.actor_id/1`,

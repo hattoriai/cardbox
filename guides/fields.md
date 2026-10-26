@@ -28,6 +28,7 @@ Each returns the collection as it is after, with its fields.
 | `status` | one choice, of a group | `choices`, each with a `group`: `todo`, `doing`, `done` |
 | `person` | a person's or an agent's id | `multiple` |
 | `url`, `email`, `phone` | a text of that form | |
+| `file` | files your app stored | |
 | `relation` | records of a collection | `collection_id`; `limit`; `two_way` and `reverse_name` |
 | `created_at`, `updated_at` | when the record was made, changed | read-only |
 | `created_by`, `updated_by` | who made it, changed it | read-only |
@@ -97,8 +98,36 @@ other side.
 
 A relation keeps its collection: to link to another one, add a field.
 
+## Files
+
+```elixir
+{:ok, file} = Storehouse.store(path, name: "edp-2026-11.pdf", adapter: MyApp.Uploads)
+
+Box.update(bills, bill.id, %{"Invoice" => [file]})
+```
+
+Cardbox keeps where each file is, not its bytes: your app stores the file
+(Storehouse, a bucket, its own disk) and gives the field what it stored,
+a map (or a struct) with its `key`, its `url`, its `name`, and its
+`content_type` and `bytes`, and a `preview` if it has one. A value is a
+list of at most 20 files, each once by its key.
+
+What a page shows of a file is checked: its `url` and `preview` are a
+path of your app (`/uploads/...`) or an `https://` address, never a
+`javascript:` one or another site's `//` path; its `content_type` a media
+type, `application/octet-stream` unless given; its name loses control and
+direction characters, so `a\u202Egnp.exe` cannot pass for a PNG. Cardbox
+does not check the file itself: that it is what its type says is for the
+store that took it.
+
+A file filters by being empty or not, and a record's search text has its
+files' names. `Cardbox.Record.to_map/2` gives each file whole; a table
+shows each by name, a link to its `url` (`a.cardbox-file`, with its
+`data-type`), and does not edit it. A file field that becomes a text keeps
+the names.
+
 ## Search text
 
-Each record keeps the words of its texts and of its choices' names,
+Each record keeps the words of its texts, of its files' names and of its choices' names,
 without case and accents, in its `search_text` column, written with its
 values. A search looks there (see [Queries](queries.md)).

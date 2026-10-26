@@ -117,7 +117,7 @@ LiveView, live updates and a board.
 
 * **Fields people define.** Text, numbers, checkboxes, dates (with a time,
   in UTC), selects and multi-selects with coloured choices, statuses in
-  groups, people, links, emails, phones, relations between collections
+  groups, people, links, emails, phones, files, relations between collections
   (two-way, if you like), and who made and changed each record and when.
   Rename a field or a choice and nothing else changes; change a field's
   type and its values are converted. → [Fields](guides/fields.md)

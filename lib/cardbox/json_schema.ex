@@ -66,6 +66,26 @@ defmodule Cardbox.JSONSchema do
   defp value(%Field{type: "phone"}),
     do: %{"type" => "string", "pattern" => "^\\+?[0-9][0-9 ()\\-.]{1,30}$"}
 
+  defp value(%Field{type: "file"}) do
+    %{
+      "type" => "array",
+      "maxItems" => 20,
+      "description" => "files your app stored",
+      "items" => %{
+        "type" => "object",
+        "required" => ["key", "url", "name"],
+        "properties" => %{
+          "key" => %{"type" => "string", "description" => "where the store keeps it"},
+          "url" => %{"type" => "string", "description" => "a path (/...) or an https:// address"},
+          "name" => %{"type" => "string"},
+          "content_type" => %{"type" => "string"},
+          "bytes" => %{"type" => "integer", "minimum" => 0},
+          "preview" => %{"type" => "string"}
+        }
+      }
+    }
+  end
+
   defp value(%Field{type: "relation", options: options}) do
     %{
       "type" => "array",

@@ -7,6 +7,11 @@ and Cardbox follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-26
+
+Field types of your app's own, a file field, and records that follow an
+update.
+
 ### Added
 
 - Field types of your app's own (`Cardbox.FieldType`, `config :cardbox,

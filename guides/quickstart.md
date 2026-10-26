@@ -8,7 +8,7 @@ every change live in every window. About fifteen minutes.
 Add Cardbox and the libraries of the views you show to `mix.exs`:
 
 ```elixir
-{:cardbox, "~> 0.1"},
+{:cardbox, "~> 0.2"},
 {:masu, "~> 0.7"},    # tables
 {:hakushi, "~> 0.6"}, # canvases, if you show them
 ```

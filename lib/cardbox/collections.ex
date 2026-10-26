@@ -158,7 +158,7 @@ defmodule Cardbox.Collections do
 
     with :ok <- changeset_ok(changeset),
          :ok <- unique_name(collection, name, nil),
-         {:ok, options} <- options(type, options, %{}),
+         {:ok, options} <- options(type, options, %{}, collection),
          :ok <- relation_target(mod, type, options) do
       key = Key.from_name(name, Enum.map(collection.fields, & &1.key), "field")
       position = position(collection.fields, Map.get(attrs, "position"))
@@ -302,10 +302,10 @@ defmodule Cardbox.Collections do
   defp new_options(mod, repo, collection, field, type, given) do
     cond do
       given != nil and type == field.type ->
-        options(type, given, field.options)
+        options(type, given, field.options, collection)
 
       given != nil ->
-        options(type, given, %{})
+        options(type, given, %{}, collection)
 
       type == field.type ->
         {:ok, field.options}
@@ -314,14 +314,15 @@ defmodule Cardbox.Collections do
         options(
           type,
           %{"choices" => choices_from_values(mod, repo, collection, field, type)},
-          %{}
+          %{},
+          collection
         )
 
       type == "number" and field.type == "number" ->
         {:ok, field.options}
 
       true ->
-        options(type, %{}, %{})
+        options(type, %{}, %{}, collection)
     end
   end
 
@@ -351,8 +352,8 @@ defmodule Cardbox.Collections do
     end
   end
 
-  defp options(type, options, previous) do
-    case Type.check_options(type, options, previous) do
+  defp options(type, options, previous, collection \\ nil) do
+    case Type.check_options(type, options, previous, collection) do
       {:ok, options} -> {:ok, options}
       {:error, message} -> {:error, Error.invalid([{"options", message}])}
     end

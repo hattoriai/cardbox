@@ -126,6 +126,43 @@ shows each by name, a link to its `url` (`a.cardbox-file`, with its
 `data-type`), and does not edit it. A file field that becomes a text keeps
 the names.
 
+## Your own types
+
+```elixir
+# config/config.exs
+config :cardbox, types: [MyApp.Cardbox.Rating]
+```
+
+A type of your app's is a module of `Cardbox.FieldType`: its `name/0` and
+its `cast/3`, and if it likes its kind (how it filters and sorts), its
+options (checked with the collection, so they may name its other
+fields), its words in a table and on a board, its JSON Schema for agents
+and its search words. Its values are kept as JSON in the record, as
+Cardbox's are, and go through the same writes, checks and events. It is
+in the app's config rather than in your Cardbox module, as Kotoba's nodes
+are, since a value is read in places that know only its field.
+
+## What follows an update
+
+`c:Cardbox.after_update/4` is told of each update that changed a record,
+in its transaction, with the record before and after and the keys that
+changed. It gives the records to insert with it (a task done that opens
+the next one, a bill paid that comes back next month), or an error that
+undoes the update:
+
+```elixir
+@impl Cardbox
+def after_update(collection, before, record, changed) do
+  if "status" in changed and done?(record) and not done?(before),
+    do: {:ok, [next_bill(collection, record)]},
+    else: {:ok, []}
+end
+```
+
+The records are inserted by the update's actor, broadcast as
+`:record_inserted`, and checked as any insert: one that does not check
+undoes the update too.
+
 ## Search text
 
 Each record keeps the words of its texts, of its files' names and of its choices' names,

@@ -44,6 +44,7 @@ if Code.ensure_loaded?(Masu.Source) do
     | multi-select, relation, several people | the names or titles, read-only |
     | file | the files' names, each a link to it, read-only |
     | created at, updated at, by | read-only |
+    | a type of your app's | by its kind, its `text/2` shown in `<span class="cardbox-value">` |
 
     A cell takes what a person types as Cardbox takes a value: a choice by
     its name, a date as the grid's editor gives it.
@@ -57,6 +58,8 @@ if Code.ensure_loaded?(Masu.Source) do
     use Phoenix.Component
 
     alias Cardbox.{Choice, Collection, Field, Record, Type, View}
+
+    @builtin Type.builtin()
 
     ## The component
 
@@ -131,6 +134,8 @@ if Code.ensure_loaded?(Masu.Source) do
       """
     end
 
+    defp rich?(%Field{type: type}) when type not in @builtin, do: true
+
     defp rich?(%Field{type: type}),
       do: type in ~w(select status multi_select person relation file created_by updated_by)
 
@@ -161,6 +166,15 @@ if Code.ensure_loaded?(Masu.Source) do
 
       ~H"""
       <span :for={title <- @titles} class="cardbox-link">{title}</span>
+      """
+    end
+
+    defp cell(%{field: %Field{type: type} = field} = assigns) when type not in @builtin do
+      value = Map.get(assigns.row["__data"], field.key)
+      assigns = assign(assigns, :text, Cardbox.FieldType.text(Type.app_type(type), field, value))
+
+      ~H"""
+      <span :if={@text} class="cardbox-value" data-type={@field.type}>{@text}</span>
       """
     end
 
@@ -292,7 +306,7 @@ if Code.ensure_loaded?(Masu.Source) do
 
     defp type(%Field{type: type} = field, people) do
       case {type, Type.kind(field)} do
-        {"number", _} ->
+        {_, :number} ->
           [type: if(field.options["format"] == "integer", do: :integer, else: :number)] ++
             decimals(field)
 

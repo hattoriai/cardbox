@@ -9,6 +9,7 @@ defmodule Cardbox.Search do
   alias Cardbox.{Choice, Collection, Field, Type}
 
   @max 20_000
+  @builtin Type.builtin()
 
   @doc false
   @spec text(Collection.t(), map()) :: String.t() | nil
@@ -24,6 +25,9 @@ defmodule Cardbox.Search do
   end
 
   defp words(_field, nil), do: []
+
+  defp words(%Field{type: type} = field, value) when type not in @builtin,
+    do: Cardbox.FieldType.words(Type.app_type(type), field, value)
 
   defp words(%Field{type: type} = field, value) when type in ~w(select status) do
     case Choice.find(Field.choices(field), value) do

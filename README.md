@@ -120,7 +120,9 @@ LiveView, live updates and a board.
   groups, people, links, emails, phones, files, relations between collections
   (two-way, if you like), and who made and changed each record and when.
   Rename a field or a choice and nothing else changes; change a field's
-  type and its values are converted. → [Fields](guides/fields.md)
+  type and its values are converted. Add types of your own
+  (`Cardbox.FieldType`), and records that follow an update
+  (`c:Cardbox.after_update/4`). → [Fields](guides/fields.md)
 * **Queries that run in your database.** Conditions in groups of `and` and
   `or`, sorts, and search, on PostgreSQL and SQLite alike. Days said in
   words ("within the next week") and "me" are read when the query runs,

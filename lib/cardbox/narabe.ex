@@ -41,6 +41,8 @@ if Code.ensure_loaded?(Narabe.Components) do
 
     alias Cardbox.{Choice, Collection, Field, Record, Type, View}
 
+    @builtin Type.builtin()
+
     @none "none"
 
     # The columns of a checkbox.
@@ -277,9 +279,15 @@ if Code.ensure_loaded?(Narabe.Components) do
     defp title(record, field), do: Map.get(record.data, field.key) || "Untitled"
 
     # A card's values, as words: those it has.
+    # A type of the app's is told its value as it is kept, as everywhere.
+    defp value_of(record, %Field{type: type} = field) when type not in @builtin,
+      do: {:kept, Map.get(record.data, field.key)}
+
+    defp value_of(record, field), do: Record.value(record, field)
+
     defp values(record, fields, people) do
       for field <- fields,
-          text = text(field, Record.value(record, field), people),
+          text = text(field, value_of(record, field), people),
           text not in [nil, ""],
           do: {field, text}
     end
@@ -305,6 +313,9 @@ if Code.ensure_loaded?(Narabe.Components) do
     defp text(%Field{type: "checkbox"} = field, true, _people), do: field.name
 
     defp text(%Field{type: "file"}, files, _people), do: Enum.map_join(files, ", ", & &1["name"])
+
+    defp text(%Field{type: type} = field, {:kept, value}, _people) when type not in @builtin,
+      do: Cardbox.FieldType.text(Type.app_type(type), field, value)
 
     defp text(%Field{type: "relation"}, ids, _people),
       do: "#{length(ids)} linked"

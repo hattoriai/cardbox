@@ -41,7 +41,7 @@ defmodule Cardbox.Type do
   is checked against its field, and an error says what the field takes.
   """
 
-  alias Cardbox.Choice
+  alias Cardbox.{Choice, FieldType}
 
   @types ~w(text number checkbox date select multi_select status person url email phone file relation created_at updated_at created_by updated_by)
   @system ~w(created_at updated_at created_by updated_by)
@@ -77,9 +77,18 @@ defmodule Cardbox.Type do
   @typedoc "How a type's values compare, in Elixir and in SQL."
   @type kind :: :text | :number | :boolean | :date | :datetime | :choice | :list
 
-  @doc "The types, by name."
+  @doc "The types, by name: Cardbox's, then your app's (`Cardbox.FieldType`)."
   @spec names() :: [String.t()]
-  def names, do: @types
+  def names, do: @types ++ Map.keys(FieldType.all())
+
+  @doc "Cardbox's own types, by name."
+  @spec builtin() :: [String.t()]
+  def builtin, do: @types
+
+  @doc "The module of a type of your app's, or nil for one of Cardbox's."
+  @spec app_type(String.t()) :: module() | nil
+  def app_type(type) when type in @types, do: nil
+  def app_type(type), do: FieldType.get(type)
 
   @doc "Whether a type is one of the record's own columns, which nobody writes."
   @spec system?(String.t()) :: boolean()
@@ -95,11 +104,24 @@ defmodule Cardbox.Type do
   def kind(%{type: "person", options: options}),
     do: if(options["multiple"], do: :list, else: :choice)
 
-  def kind(%{type: type}), do: Map.fetch!(@kinds, type)
+  def kind(%{type: type}) when type in @types, do: Map.fetch!(@kinds, type)
+
+  def kind(%{type: type} = field) do
+    case app_type(type) do
+      nil ->
+        raise ArgumentError, "no field type #{inspect(type)}: is it in config :cardbox, types?"
+
+      module ->
+        FieldType.kind(module, field.options || %{})
+    end
+  end
 
   @doc "The filter operators of a field (`Cardbox.Filter`)."
   @spec operators(map()) :: [atom()]
-  def operators(%{type: type} = field), do: operators(kind(field), type)
+  def operators(%{type: type} = field) when type in @types, do: operators(kind(field), type)
+
+  def operators(%{type: type} = field),
+    do: FieldType.operators(app_type(type), field, fn -> operators(kind(field), type) end)
 
   defp operators(:text, _type), do: @text_ops
   defp operators(:number, _type), do: @number_ops
@@ -121,19 +143,28 @@ defmodule Cardbox.Type do
   @doc """
   Checks a type's options, with `previous`, the field's options before (so a
   choice renamed keeps its id). Returns them as they are kept.
-  """
-  @spec check_options(String.t(), map(), map()) :: {:ok, map()} | {:error, String.t()}
-  def check_options(type, options, previous \\ %{})
 
-  def check_options(type, options, previous) when is_map(options) do
+  With the field's collection, a type of your app's checks them too
+  (`c:Cardbox.FieldType.check_options/3`), since its options may name the
+  collection's other fields.
+  """
+  @spec check_options(String.t(), map(), map(), Cardbox.Collection.t() | nil) ::
+          {:ok, map()} | {:error, String.t()}
+  def check_options(type, options, previous \\ %{}, collection \\ nil)
+
+  def check_options(type, options, previous, collection) when is_map(options) do
     options = Map.new(options, fn {k, v} -> {to_string(k), v} end)
 
-    with :ok <- known_options(type, options) do
-      options(type, options, previous)
+    case app_type(type) do
+      nil ->
+        with :ok <- known_options(type, options), do: options(type, options, previous)
+
+      module ->
+        FieldType.check_options(module, options, previous || %{}, collection)
     end
   end
 
-  def check_options(_type, options, _previous),
+  def check_options(_type, options, _previous, _collection),
     do: {:error, "options are a map, got: #{inspect(options)}"}
 
   @option_keys %{
@@ -250,7 +281,13 @@ defmodule Cardbox.Type do
   def cast(_field, nil, _opts), do: {:ok, nil}
 
   def cast(%{type: type} = field, value, opts) do
-    case do_cast(type, field, value, opts) do
+    result =
+      case app_type(type) do
+        nil -> do_cast(type, field, value, opts)
+        module -> module.cast(value, field, opts)
+      end
+
+    case result do
       {:ok, value} when value in ["", []] -> {:ok, nil}
       other -> other
     end
@@ -616,7 +653,12 @@ defmodule Cardbox.Type do
     if kind(field) == :list, do: [], else: nil
   end
 
-  def load(_field, value), do: value
+  def load(%{type: type} = field, value) do
+    case app_type(type) do
+      nil -> value
+      module -> FieldType.load(module, field, value)
+    end
+  end
 
   @doc false
   # A value as plain words or numbers, for a field that changes its type:
@@ -637,5 +679,10 @@ defmodule Cardbox.Type do
     for id <- ids, %{"name" => name} <- [Choice.find(options["choices"], id)], do: name
   end
 
-  def plain(_field, value), do: value
+  def plain(%{type: type} = field, value) do
+    case app_type(type) do
+      nil -> value
+      module -> FieldType.plain(module, field, value)
+    end
+  end
 end

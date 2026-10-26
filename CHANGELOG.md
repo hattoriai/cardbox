@@ -9,6 +9,15 @@ and Cardbox follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Field types of your app's own (`Cardbox.FieldType`, `config :cardbox,
+  types: [...]`): a name and a cast, and if it likes a kind (how it
+  filters and sorts), options checked with the collection, words for a
+  table and a board, a JSON Schema and search words. A type named as one
+  of Cardbox's is refused.
+- `c:Cardbox.after_update/4`: after an update that changed a record, in
+  its transaction, the records to insert with it, or an error that undoes
+  the update. They are inserted by the update's actor and broadcast as
+  `:record_inserted`.
 - A `file` field: files your app stored (Storehouse's, say), each kept as
   where it is and what it is (`key`, `url`, `name`, `content_type`,
   `bytes`, `preview`), at most 20 to a value. Its `url` and `preview` are a

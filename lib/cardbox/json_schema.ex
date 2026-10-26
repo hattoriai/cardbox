@@ -7,6 +7,7 @@ defmodule Cardbox.JSONSchema do
   alias Cardbox.{Collection, Field, Type}
 
   @dialect "https://json-schema.org/draft/2020-12/schema"
+  @builtin Type.builtin()
 
   @spec schema(Collection.t()) :: map()
   def schema(%Collection{} = collection) do
@@ -85,6 +86,9 @@ defmodule Cardbox.JSONSchema do
       }
     }
   end
+
+  defp value(%Field{type: type} = field) when type not in @builtin,
+    do: Cardbox.FieldType.json_schema(Type.app_type(type), field)
 
   defp value(%Field{type: "relation", options: options}) do
     %{

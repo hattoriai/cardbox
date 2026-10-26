@@ -33,7 +33,7 @@ mix ecto.migrate
 
 It adds Cardbox to your deps, writes your module of Cardbox's and the
 migration of its tables, and shows each change before it writes. Or by
-hand: add `{:cardbox, "~> 0.1"}` to the deps in `mix.exs`, then
+hand: add `{:cardbox, "~> 0.2"}` to the deps in `mix.exs`, then
 
 ```sh
 mix deps.get

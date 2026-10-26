@@ -108,7 +108,7 @@ defmodule Cardbox.MixProject do
       groups_for_modules: [
         "Your module": [Cardbox],
         Collections: [Cardbox.Collection, Cardbox.Field, Cardbox.Record, Cardbox.View],
-        Types: [Cardbox.Type, Cardbox.Choice],
+        Types: [Cardbox.Type, Cardbox.Choice, Cardbox.FieldType],
         Queries: [Cardbox.Query, Cardbox.Filter, Cardbox.Sort],
         Changes: [Cardbox.Event, Cardbox.Error],
         "Drawn by": [

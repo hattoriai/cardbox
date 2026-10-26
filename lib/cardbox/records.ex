@@ -314,7 +314,7 @@ defmodule Cardbox.Records do
 
   def update(mod, %Collection{} = collection, record_ref, changes, opts) do
     with :ok <- Store.allow(mod, opts, :update, collection),
-         {:ok, {record, changed, linked}} <-
+         {:ok, {record, changed, linked, inserted}} <-
            Store.transaction(mod, fn repo ->
              do_update(mod, repo, collection, record_ref, changes, opts)
            end) do
@@ -325,7 +325,14 @@ defmodule Cardbox.Records do
         )
       end
 
-      broadcast_linked(mod, linked, opts)
+      for {new, _linked} <- inserted,
+          do:
+            Store.broadcast(
+              mod,
+              Store.event(:record_inserted, collection.id, opts, mod, record: new)
+            )
+
+      broadcast_linked(mod, linked ++ Enum.flat_map(inserted, &elem(&1, 1)), opts)
       {:ok, record}
     end
   end
@@ -342,22 +349,60 @@ defmodule Cardbox.Records do
 
       changed = for {key, _} <- changes, Map.get(data, key) != Map.get(record.data, key), do: key
 
-      if changed == [] do
-        {:ok, {record, [], []}}
-      else
-        updated =
-          record
-          |> Ecto.Changeset.change(
-            data: stored(collection, data),
-            search_text: Search.text(collection, data),
-            updated_by: Store.actor_id(mod, opts)
-          )
-          |> Ecto.Changeset.force_change(:data, stored(collection, data))
-          |> repo.update!()
+      if changed == [],
+        do: {:ok, {record, [], [], []}},
+        else: write_update(mod, repo, collection, record, data, changed, opts)
+    end
+  end
 
-        linked = put_links(repo, collection, record.id, data, changed)
-        {:ok, {%{updated | data: data}, changed, linked}}
+  defp write_update(mod, repo, collection, record, data, changed, opts) do
+    updated =
+      record
+      |> Ecto.Changeset.change(
+        data: stored(collection, data),
+        search_text: Search.text(collection, data),
+        updated_by: Store.actor_id(mod, opts)
+      )
+      |> Ecto.Changeset.force_change(:data, stored(collection, data))
+      |> repo.update!()
+
+    linked = put_links(repo, collection, record.id, data, changed)
+    updated = %{updated | data: data}
+
+    with {:ok, inserted} <- after_update(mod, repo, collection, record, updated, changed, opts),
+         do: {:ok, {updated, changed, linked, inserted}}
+  end
+
+  # The records the app inserts after the update (c:Cardbox.after_update/4),
+  # with it.
+  defp after_update(mod, repo, collection, before, record, changed, opts) do
+    case mod.after_update(collection, before, record, changed) do
+      {:ok, list} when is_list(list) ->
+        insert_each(mod, repo, collection, list, opts)
+
+      {:error, message} when is_binary(message) ->
+        {:error, Error.invalid([{nil, message}], collection.fields)}
+
+      other ->
+        raise ArgumentError,
+              "#{inspect(mod)}.after_update/4 returns {:ok, [values]} or {:error, message}, got: #{inspect(other)}"
+    end
+  end
+
+  defp insert_each(mod, repo, collection, list, opts) do
+    list
+    |> Enum.reduce_while({:ok, []}, fn values, {:ok, acc} ->
+      case do_insert(mod, repo, collection, values, opts) do
+        {:ok, inserted} ->
+          {:cont, {:ok, [inserted | acc]}}
+
+        {:error, error} ->
+          {:halt, {:error, %{error | message: "after the update: " <> error.message}}}
       end
+    end)
+    |> case do
+      {:ok, inserted} -> {:ok, Enum.reverse(inserted)}
+      error -> error
     end
   end
 

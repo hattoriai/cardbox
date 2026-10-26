@@ -1,7 +1,7 @@
 defmodule Cardbox.Search do
   @moduledoc false
-  # A record's search text: the words of its texts and of its choices'
-  # names, without case and without accents, kept in its own column on
+  # A record's search text: the words of its texts, of its choices'
+  # names and of its files' names, without case and without accents, kept in its own column on
   # every write. A search looks for each of its words there, the same way on
   # every database: on PostgreSQL with a trigram index, on SQLite in the
   # column as it is.
@@ -9,6 +9,7 @@ defmodule Cardbox.Search do
   alias Cardbox.{Choice, Collection, Field, Type}
 
   @max 20_000
+  @builtin Type.builtin()
 
   @doc false
   @spec text(Collection.t(), map()) :: String.t() | nil
@@ -25,6 +26,9 @@ defmodule Cardbox.Search do
 
   defp words(_field, nil), do: []
 
+  defp words(%Field{type: type} = field, value) when type not in @builtin,
+    do: Cardbox.FieldType.words(Type.app_type(type), field, value)
+
   defp words(%Field{type: type} = field, value) when type in ~w(select status) do
     case Choice.find(Field.choices(field), value) do
       %{"name" => name} -> [name]
@@ -34,6 +38,9 @@ defmodule Cardbox.Search do
 
   defp words(%Field{type: "multi_select"} = field, ids) when is_list(ids),
     do: for(id <- ids, %{"name" => name} <- [Choice.find(Field.choices(field), id)], do: name)
+
+  defp words(%Field{type: "file"}, files) when is_list(files),
+    do: for(%{"name" => name} <- files, do: name)
 
   defp words(field, value) when is_binary(value) do
     if Type.kind(field) == :text, do: [value], else: []

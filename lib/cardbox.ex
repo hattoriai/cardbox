@@ -57,7 +57,7 @@ defmodule Cardbox do
 
   ## Callbacks
 
-  Three callbacks have defaults, and your module overrides them:
+  Four callbacks have defaults, and your module overrides them:
 
       @impl Cardbox
       def actor_id(%MyApp.Accounts.User{id: id}), do: "user:\#{id}"
@@ -72,6 +72,10 @@ defmodule Cardbox do
       def check_view("timeline", %{"start" => _, "end" => _} = options, _collection), do: {:ok, options}
       def check_view("timeline", _options, _collection), do: {:error, "a timeline names its start and end fields"}
       def check_view(_type, options, _collection), do: {:ok, options}
+
+      @impl Cardbox
+      def after_update(collection, before, record, changed),
+        do: {:ok, MyApp.Bills.next(collection, before, record, changed)}
   """
 
   alias Cardbox.{Collection, Record}
@@ -101,11 +105,32 @@ defmodule Cardbox do
   @callback check_view(type :: String.t(), options :: map(), collection :: Collection.t()) ::
               {:ok, map()} | {:error, String.t()}
 
+  @doc """
+  After an update that changed a record, in its transaction: the records
+  to insert with it, each one's values (as `insert/3` takes them), or an
+  error that undoes the update. `before` is the record as it was,
+  `changed` the keys of the values that changed. The records are inserted
+  by the update's actor, after it, and broadcast as `:record_inserted`;
+  `allow?/3` is asked for the update only. Inserts nothing by default.
+
+  A bill paid that comes back next month, a task done that opens the next
+  one: what follows a change is your app's, and happens with it or not at
+  all.
+  """
+  @callback after_update(
+              Collection.t(),
+              before :: Record.t(),
+              Record.t(),
+              changed :: [String.t()]
+            ) ::
+              {:ok, [map()]} | {:error, String.t()}
+
   @doc false
   defmacro __using__(opts) do
     {:__block__, [],
      [
        setup(opts),
+       defaults(),
        collection_functions(),
        field_functions(),
        record_functions(),
@@ -114,7 +139,7 @@ defmodule Cardbox do
      ]}
   end
 
-  # The module's config and the callbacks' defaults.
+  # The module's config.
   defp setup(opts) do
     quote bind_quoted: [opts: opts] do
       @behaviour Cardbox
@@ -131,7 +156,12 @@ defmodule Cardbox do
 
       def __cardbox__(:pubsub), do: @cardbox_pubsub
       def __cardbox__(:views), do: Cardbox.View.types() ++ @cardbox_views
+    end
+  end
 
+  # The callbacks' defaults, which the module overrides.
+  defp defaults do
+    quote do
       @impl Cardbox
       def actor_id(actor), do: Cardbox.default_actor_id(actor)
 
@@ -141,7 +171,10 @@ defmodule Cardbox do
       @impl Cardbox
       def check_view(_type, options, _collection), do: {:ok, options}
 
-      defoverridable actor_id: 1, allow?: 3, check_view: 3
+      @impl Cardbox
+      def after_update(_collection, _before, _record, _changed), do: {:ok, []}
+
+      defoverridable actor_id: 1, allow?: 3, check_view: 3, after_update: 4
     end
   end
 
